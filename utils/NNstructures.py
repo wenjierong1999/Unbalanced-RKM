@@ -27,4 +27,3 @@ def create_featuremap_genrkm_MNIST(img_size : list, capicity : int, fdim : int):
         nn.Flatten(),
         nn.Linear(c * 2 * 7 * 7, fdim)
     )
-

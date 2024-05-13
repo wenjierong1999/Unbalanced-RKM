@@ -1,6 +1,6 @@
 import torch
 from torchvision import datasets, transforms
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Subset
 import torch.distributions as D
 import numpy as np
 from tqdm import tqdm
@@ -14,18 +14,26 @@ class FastMNIST(datasets.MNIST):
     '''
     Classic MNIST dataset
     '''
-    def __init__(self, *args, **kwargs):
+    def __init__(self, subsample_num = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        if subsample_num is not None:
+            #total_sample_len = self.data.size(0)
+            #random_indices = np.random.permutation(total_sample_len)[:subsample_num]
+            self.data = self.data[:subsample_num]
+            self.targets = self.targets[:subsample_num]
+
         self.data = self.data.unsqueeze(1).div(255)
+        self.target = self.targets
     def __getitem__(self, index):
         img, target = self.data[index], self.targets[index]
         return img, target
 
-def get_mnist_dataloader(batch_size, data_root, shuffle = False):
+def get_mnist_dataloader(batch_size, data_root, shuffle = False, subsample_num = None):
     """MNIST dataloader with (28, 28) images."""
 
     all_transforms = transforms.Compose([transforms.ToTensor()])
-    train_data = FastMNIST(root=data_root, train=True, download=True, transform=all_transforms)
+    train_data = FastMNIST(root=data_root, train=True, download=True, transform=all_transforms, subsample_num=subsample_num)
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=shuffle, pin_memory=False,
                               num_workers=0)
     return train_loader
@@ -34,15 +42,15 @@ def get_mnist_dataloader(batch_size, data_root, shuffle = False):
 class Dataset2DSynthetic(Dataset):
     def __init__(self, x : torch.tensor, label : list):
         super().__init__()
-        self.x = x
-        self.label = label
+        self.data = x
+        self.target = label
 
     def __len__(self):
-        return len(self.x)
+        return len(self.data)
 
     def __getitem__(self, idx):
-        sample = {'x': self.x[idx], 'label': self.label[idx]}
-        return sample
+        x, label = self.data[idx], self.target[idx]
+        return x, label
 
 
 def get_unbalanced_ring2d_dataloader(batchsize, sample_num, minority_modes_num, unbalanced = True, shuffle = False,
@@ -95,14 +103,16 @@ def get_unbalanced_ring2d_dataloader(batchsize, sample_num, minority_modes_num, 
     print('#################')
     print('Data generated successfully,')
     print('Value counts for each mode:')
-    print(Counter(Synthetic_dataloader.dataset.label))
+    print(Counter(Synthetic_dataloader.dataset.target))
+
+    # uncomment to see visualization of created data
     # plt.scatter(x.numpy()[:,0],x.numpy()[:,1],s=0.3)
     # plt.show()
 
     return Synthetic_dataloader, map_enc
 
 
-# TODO:Crete unbalanced grid shape data
+# TODO:Create unbalanced grid shape data
 # Grid is a mixture of 25 two-dimensional isotropic normals with standard deviation 0.05
 # and with means on a square grid with spacing 2.
 # The first rectangular blocks of 2 × 5 adjacent modes are depleted with a factor 0.05.
@@ -111,8 +121,9 @@ def get_unbalanced_grid2d_dataloader():
     return None
 
 
-#TODO: Create unbalanced MNIST data
+
 # Description:
+'''
 # The first modified dataset, named unbalanced 012-MNIST,
 # consists of only the digits 0, 1 and 2.
 # The class 2 is depleted so that the probability of sampling 2 is only
@@ -121,8 +132,122 @@ def get_unbalanced_grid2d_dataloader():
 # The classes 0, 1, 2, 3, and 4 are all depleted so that the probability of sampling
 # out of the minority classes is only 0.05 times the probability of sampling
 # from the majority digits.
+'''
+class Repacked(Dataset):
+    def __init__(self, X : np.array, Y : np.array, transform=None):
+        super().__init__()
+        self.data = torch.tensor(X, dtype=torch.float32)
+        self.target = torch.tensor(Y, dtype=torch.int32)
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.target)
+
+    def __getitem__(self, idx):
+        x, label = self.data[idx], self.target[idx]
+
+        if self.transform:
+            x = self.transform(x)
+
+        return x, label
+
+
+
+# class Repacked_minority_augmentation(Dataset):
+#
+#     def __init__(self, X : np.array, Y : np.array, minority_labels ,minority_transform=None):
+#         super().__init__()
+#         self.data = torch.tensor(X, dtype=torch.float32)
+#         self.target = torch.tensor(Y, dtype=torch.int32)
+#         self.minority_transform = minority_transform
+#         self.minority_labels = minority_labels
+#
+#     def __len__(self):
+#         return len(self.target)
+#
+#     def __getitem__(self, idx):
+#         x, label = self.data[idx], self.target[idx]
+#         if label in self.minority_labels:
+#             return None
+
+def get_unbalanced_MNIST_dataloader(data_root, unbalanced_classes : np.array, batchsize = 64, shuffle = False,
+                                    unbalanced_ratio = 0.05, selected_classes = np.arange(10), unbalanced = True):
+    #load original data
+    all_transforms = transforms.Compose([transforms.ToTensor()])
+    train_data = FastMNIST(root=data_root, train=True, download=True, transform=all_transforms)
+    X = np.asarray(train_data.data)
+    Y = np.asarray(train_data.targets)
+    #drop unselected class
+    full_classes = np.arange(10)
+    remove_classes = np.setdiff1d(full_classes,selected_classes)
+    if remove_classes.size == 0:
+        X = X
+        Y = Y
+    else:
+        for i in remove_classes:
+            idx_drop = np.argwhere(Y == i)
+            X = np.delete(X, idx_drop, axis=0)
+            Y = np.delete(Y, idx_drop)
+    if unbalanced is True:
+        for i in unbalanced_classes:
+            idx_i = np.argwhere(Y == i)
+            idx_dropped = idx_i[:np.round(len(idx_i) * (1 - unbalanced_ratio)).astype('int32')]
+            # num_idx_dropped = np.round(len(idx_i) * (1 - unbalanced_ratio)).astype('int32')
+            # idx_dropped = np.random.choice(np.ravel(idx_i), num_idx_dropped, replace=False)
+            X = np.delete(X, idx_dropped, axis=0)
+            Y = np.delete(Y, idx_dropped)
+    else:
+        X = X
+        Y = Y
+    print('Value counts for each mode:')
+    print(Counter(list(np.ravel(Y))))
+    unbalanced_MNIST = Repacked(X, Y, transform=None)
+    unbalanced_MNIST_dataloader = DataLoader(unbalanced_MNIST, batch_size=batchsize, shuffle=shuffle)
+
+
+    #some test codes
+    #uncomment to see visualizion of the created data
+    # figure = plt.figure(figsize=(14, 14))
+    # figure.tight_layout(pad=2.5)
+    # cols, rows = 8, 8
+    # for i in range(1, cols * rows + 1):
+    #     sample_idx = torch.randint(unbalanced_MNIST.__len__(), size=(1,)).item()
+    #     img = unbalanced_MNIST.img[sample_idx]
+    #     label = unbalanced_MNIST.target[sample_idx]
+    #     figure.add_subplot(rows, cols, i)
+    #     plt.title(str(label.item()))
+    #     plt.axis("off")
+    #     plt.imshow(img.squeeze(), cmap="gray")
+    # plt.show()
+
+    return unbalanced_MNIST_dataloader
+
+
+# TODO: Unbalanced CIFAR10
+'''
+The first modified dataset, named unbalanced 06-CIFAR10, 
+consists of only the classes 0 and 6 or images of airplanes and frogs respectively. 
+The class 0 is depleted with a factor 0.05. The second dataset, named unbalanced 016-CIFAR10, 
+consists of the classes 0,1 and 6. Compared to the previous dataset, we add images from
+the class automobile. Now, the class 6 consisting of frogs is depleted with a factor 0.05.
+'''
+
 
 
 if __name__ == '__main__':
 
-    get_unbalanced_ring2d_dataloader(64,5000,4, modes_num=8)
+    #some test codes
+    #dl,_ = get_unbalanced_ring2d_dataloader(64,5000,4, modes_num=8)
+    ub_MNIST = get_unbalanced_MNIST_dataloader('Data_Store', unbalanced_classes = np.asarray([2]),
+                                     selected_classes= np.asarray([0,1,2]))
+    # b_MNIST = get_unbalanced_MNIST_dataloader('Data_Store', unbalanced_classes = np.asarray([0,1,2]),selected_classes= np.asarray([0,1,2]),unbalanced=False)
+    # print(ub_MNIST.dataset.data.shape)
+    # print(b_MNIST.dataset.data.shape)
+    # MNIST_dataloader = get_mnist_dataloader(64,data_root='Data_Store',subsample_num=10000)
+    # print(MNIST_dataloader.dataset.data.shape)
+    # print(Counter(list(np.ravel(MNIST_dataloader.dataset.target))))
+    # img,_ = next(iter(enumerate(MNIST_dataloader)))
+    # print(next(iter(enumerate(MNIST_dataloader)))[1][0][0].shape)
+    # print(next(iter(enumerate(ub_MNIST)))[1][0][0])
+    #get_unbalanced_MNIST_dataloader('Data_Store', unbalanced_classes = np.asarray([2]),
+    #                                selected_classes= np.asarray([0,1,2]))
