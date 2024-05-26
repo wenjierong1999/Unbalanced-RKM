@@ -14,47 +14,47 @@ import umap
 
 #torch.manual_seed(0)
 
+class FeatureMap_Net(nn.Module):
+    '''
+    Initialize NN class for feature map
+    '''
+
+    def __init__(self, F_model: nn.Sequential):
+        super(FeatureMap_Net, self).__init__()
+        self.model = F_model
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class PreImageMap_Net(nn.Module):
+    """
+    Initialize NN class for pre image map
+    """
+
+    def __init__(self, PI_model: nn.Sequential):
+        super(PreImageMap_Net, self).__init__()
+        self.model = PI_model
+
+    def forward(self, x):
+        return self.model(x)
+
 class Gen_RKM():
     '''
-    Main class for implementation of Gen-RKM
+    Main class for implementation of (dual) Gen-RKM
     '''
 
     def __init__(self,
-                 FeatureMap_model : nn.Sequential,
-                 PreImageMap_model : nn.Sequential,
+                 FeatureMap_Net : nn.Module,
+                 PreImageMap_Net : nn.Module,
                  h_dim : int,
                  img_size : list, #img_size : [c,w,h]
                  device):
         self.device = device
-        self.FeatureMap_model = FeatureMap_model
-        self.PreImageMap_model = PreImageMap_model
+        self.FeatureMap_Net = FeatureMap_Net.to(device)
+        self.PreImageMap_Net = PreImageMap_Net.to(device)
         self.h_dim = h_dim
         self.img_size = img_size
-
-        class FeatureMap_Net(nn.Module):
-            '''
-            Initialize NN class for feature map
-            '''
-            def __init__(self, F_model : nn.Sequential):
-                super(FeatureMap_Net, self).__init__()
-                self.model = F_model
-            def forward(self, x):
-                return self.model(x)
-
-        class PreImageMap_Net(nn.Module):
-            """
-            Initialize NN class for pre image map
-            """
-            def __init__(self, PI_model : nn.Sequential):
-                super(PreImageMap_Net, self).__init__()
-                self.model = PI_model
-            def forward(self, x):
-                return self.model(x)
-
-        #Initialize NN class
-        self.FeatureMap_Net = FeatureMap_Net(FeatureMap_model).to(self.device)
-        self.PreImageMap_Net = PreImageMap_Net(PreImageMap_model).to(self.device)
-
 
     def KPCA(self, X, form = "primal", use_cpu = False):
         '''
@@ -117,7 +117,7 @@ class Gen_RKM():
         '''
         compute Gen-RKM loss
         update: add weighed version, D : diagonal matrix with weights for each sample on the diagonal elements
-        TODO: loss will not be stable if apply weights
+        TODO: loss will not be stable if apply weights / Fixed
         :param X:
         :param c_acc:
         :return:
@@ -140,18 +140,13 @@ class Gen_RKM():
             f1 = torch.trace(torch.mm(torch.mm(Phi_X,U),torch.t(h)))
             #f2 = 0.5 * torch.diagonal(s)[0].item() * torch.trace(torch.mm(torch.mm(torch.inverse(D), h), torch.t(h)))
             f2 = 0.5 * torch.trace(torch.mm(torch.inverse(D), torch.mm(h, torch.mm(s, torch.t(h)))))
-            #print(torch.diagonal(torch.inverse(D)))
-            #print('f2',f2)
-            # print('s0',s[0])
-            # print('f2', f2)
             f3 = 0.5 * torch.trace(torch.mm(torch.t(U), U))
-            #regularization on h
 
+            #regularization on h
             J_t = -f1 + f2 + f3
             J_stab = J_t + 0.5 * (J_t ** 2)
             loss = J_stab + c_acc * J_reconerr
-            # print('J_t',J_t)
-            # print('J_reconerr',J_reconerr)
+
             return loss, J_t, J_reconerr
 
         else:
@@ -170,8 +165,6 @@ class Gen_RKM():
             f1 = torch.trace(torch.mm(torch.mm(Phi_X,U),torch.t(h)))
             f2 = 0.5 * torch.trace(torch.mm(h, torch.mm(s, torch.t(h)))) #regularization on h
             # f2 = 0.5 * torch.diagonal(s)[0].item() * torch.trace(torch.mm(h, torch.t(h)))
-            # print('s1:',torch.diagonal(s)[0].item())
-            # print('h^Th:',torch.trace(torch.mm(h, torch.t(h))))
             f3 = 0.5 * torch.trace(torch.mm(torch.t(U), U)) #regularization on U
 
             #stablizing the loss
@@ -263,149 +256,15 @@ class Gen_RKM():
         cur_time = int(time.time())
         model_name = f'RKM_{dataset_name}_{cur_time}_s{self.h_dim}_b{dataloader.batch_size}.pth'
         torch.save({
+            'FeatureMapNet' : self.FeatureMap_Net,
+            'PreImageMapNet' : self.PreImageMap_Net,
             'FeatureMapNet_sd': self.FeatureMap_Net.state_dict(),
             'PreImageMapNet_sd': self.PreImageMap_Net.state_dict(),
-            'U' : U,
-            'h' : h,
-            's' : s
+            'U': U.detach(),
+            'h': h.detach(),
+            's': s.detach()
         },
         model_save_path + model_name)
-
-
-    def random_generation(self,
-                          g_num : int,
-                          save_model_path,
-                          save_images_path,
-                          grid_row_size = 5,
-                          l = 1):
-        '''
-        function for random generation
-        '''
-        #Load saved model
-        rkm_model = torch.load(save_model_path, map_location=torch.device('cpu'))
-        self.FeatureMap_Net.load_state_dict(rkm_model['FeatureMapNet_sd'])
-        self.PreImageMap_Net.load_state_dict(rkm_model['PreImageMapNet_sd'])
-        h = rkm_model['h'].detach()
-        print(h.shape)
-        U = rkm_model['U'].detach()
-        s = rkm_model['s'].detach()
-        #Generation
-        fig, ax = plt.subplots(grid_row_size, grid_row_size)
-        with torch.no_grad():
-            gmm = GaussianMixture(n_components=l, covariance_type='full', random_state=0).fit(h.numpy())
-            #gmm = BayesianGaussianMixture(n_components=l, covariance_type='full', weight_concentration_prior_type='dirichlet_process', random_state=0).fit(h.numpy())
-            z = gmm.sample(g_num)
-            z = torch.FloatTensor(z[0])
-            perm2 = torch.randperm(z.size(0))
-            it = 0
-            for i in range(grid_row_size):
-                for j in range(grid_row_size):
-                    print(torch.mv(U, z[perm2[it],:]).unsqueeze(0).shape)
-                    x_gen = self.PreImageMap_Net(torch.mv(U, z[perm2[it],:]).unsqueeze(0)).numpy()
-                    x_gen = x_gen.reshape(1, 28, 28)
-                    ax[i, j].imshow(x_gen[0, :], cmap='Greys_r')
-                    ax[i, j].set_xticks([])
-                    ax[i, j].set_yticks([])
-                    it += 1
-            plt.suptitle('Randomly generated samples')
-            plt.show()
-
-
-    def reconstruction_vis(self,
-                           save_model_path,
-                           dataloader : DataLoader,
-                           grid_row_size = 5,
-                           per_mode = False):
-        '''
-        visualize the reconstruction quality
-        '''
-        rkm_model = torch.load(save_model_path, map_location=torch.device('cpu'))
-        self.FeatureMap_Net.load_state_dict(rkm_model['FeatureMapNet_sd'])
-        self.PreImageMap_Net.load_state_dict(rkm_model['PreImageMapNet_sd'])
-        h = rkm_model['h'].detach()
-        U = rkm_model['U'].detach()
-        with torch.no_grad():
-            #visualize reconstruction quality under each mode
-            if per_mode:
-                xtrain = dataloader.dataset.data
-                labels = dataloader.dataset.target
-                unique_labels = labels.unique()
-                for label in unique_labels:
-                    idx = torch.where(labels == label)[0]
-                    perm1 = torch.randperm(idx.size(0))
-                    # ground truth
-                    fig2, axs = plt.subplots(grid_row_size, grid_row_size)
-                    it = 0
-                    for i in range(grid_row_size):
-                        for j in range(grid_row_size):
-                            selected_idx = idx[perm1[it]]
-                            #print('GT',selected_idx)
-                            axs[i, j].imshow(xtrain[selected_idx, 0, :, :], cmap='Greys_r')
-                            axs[i, j].set_xticks([])
-                            axs[i, j].set_yticks([])
-                            it += 1
-                    fig2.suptitle(f'Ground truth (mode {label.item()})', fontsize=35, fontweight='bold')
-                    plt.show()
-                    #reconstruction
-                    fig1, ax = plt.subplots(grid_row_size, grid_row_size)
-                    it = 0
-                    for i in range(grid_row_size):
-                        for j in range(grid_row_size):
-                            selected_idx = idx[perm1[it]]
-                            #print('REcon', selected_idx)
-                            xgen = self.PreImageMap_Net(torch.mv(U, h[selected_idx, :]).unsqueeze(0)).numpy()
-                            ax[i, j].imshow(xgen[0, 0, :, :], cmap='Greys_r')
-                            ax[i, j].set_xticks([])
-                            ax[i, j].set_yticks([])
-                            it += 1
-                    fig1.suptitle(f'Reconstruction (mode {label.item()})', fontsize=35, fontweight='bold')
-                    plt.show()
-            else:
-                xtrain = dataloader.dataset.data
-                perm1 = torch.randperm(xtrain.size(0))
-                #ground truth
-                fig2, axs = plt.subplots(grid_row_size, grid_row_size)
-                it = 0
-                for i in range(grid_row_size):
-                    for j in range(grid_row_size):
-                        axs[i, j].imshow(xtrain[perm1[it], 0, :, :], cmap='Greys_r')
-                        axs[i, j].set_xticks([])
-                        axs[i, j].set_yticks([])
-                        it += 1
-                fig2.suptitle('Ground truth', fontsize=35, fontweight='bold')
-                plt.show()
-                #reconstruction
-                fig1, ax = plt.subplots(grid_row_size, grid_row_size)
-                it = 0
-                for i in range(grid_row_size):
-                    for j in range(grid_row_size):
-                        xgen = self.PreImageMap_Net(torch.mv(U, h[perm1[it], :]).unsqueeze(0)).numpy()
-                        ax[i, j].imshow(xgen[0 ,0, :, :], cmap='Greys_r')
-                        ax[i, j].set_xticks([])
-                        ax[i, j].set_yticks([])
-                        it += 1
-                fig1.suptitle('Reconstruction', fontsize=35, fontweight='bold')
-                plt.show()
-
-    def vis_latentsapce(self, model_save_path, dataloader : DataLoader = None):
-        rkm_model = torch.load(model_save_path, map_location=torch.device('cpu'))
-        if self.h_dim == 2:
-            h = rkm_model['h'].detach().numpy()
-        else:
-            reducer = umap.UMAP()
-            h = reducer.fit_transform(rkm_model['h'].detach().numpy())
-        labels = dataloader.dataset.target.detach().numpy()
-        unique_labels = set(labels)
-        for label in unique_labels:
-            mask = labels == label
-            plt.scatter(h[mask, 0], h[mask, 1], s=1.2, label=f'{label}')
-        handles, _ = plt.gca().get_legend_handles_labels()
-        legend = plt.legend(handles, unique_labels, loc='upper right', markerscale=16)
-
-        plt.show()
-
-
-
 
 
 if __name__ == '__main__':
@@ -508,8 +367,8 @@ if __name__ == '__main__':
     #unbalanced
     ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes = np.asarray([2]),
                                      selected_classes= np.asarray([0,1,2]), unbalanced_ratio=0.1)
-    #ub_MNIST012 = DataLoader(ub_MNIST012, batch_size= 200, shuffle=True)
-    oversampling_MNIST012_loader = get_oversampling_dataloader(ub_MNIST012, batch_size=200)
+    ub_MNIST012 = DataLoader(ub_MNIST012, batch_size= 200, shuffle=True)
+    #oversampling_MNIST012_loader = get_oversampling_dataloader(ub_MNIST012, batch_size=200)
 
     #balanced
     # b_MNIST012 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([0, 1, 2]), unbalanced=False,
@@ -518,11 +377,11 @@ if __name__ == '__main__':
     #sub_MNIST = get_mnist_dataloader(data_root='../Data/Data_Store', batch_size=200, shuffle=False, subsample_num=10000)
 
 
-    img_size = list(next(iter(oversampling_MNIST012_loader))[0].size()[1:])
+    img_size = list(next(iter(ub_MNIST012))[0].size()[1:])
     f_model = create_featuremap_genrkm_MNIST(img_size,32,500)
     pi_model = create_preimage_genrkm_MNIST(img_size,32,500)
     gen_rkm = Gen_RKM(f_model, pi_model, 10, img_size, device)
     #gen_rkm.train(oversampling_MNIST012_loader, 150, 1e-4, '../SavedModels/', oversampling=True, dataset_name='ubMNIST012-oversampling')
-    gen_rkm.random_generation(100, '../SavedModels/RKM_ubMNIST012-oversampling_1715542571_s10_b200.pth', '../Outputs/', l=3)
+    gen_rkm.random_generation( '../SavedModels/RKM_ubMNIST012-oversampling_1715542571_s10_b200.pth', l=10, grid_row_size=10)
     # gen_rkm.reconstruction_vis(save_model_path='../SavedModels/RKM_ubMNIST012-weighted_1715518992_s10_b200.pth',
     #                         dataloader=ub_MNIST012, per_mode=True)

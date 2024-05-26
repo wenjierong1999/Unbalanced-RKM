@@ -3,8 +3,8 @@ import torch.nn as nn
 '''
 Store NN structures used for different models
 '''
-def create_preimage_genrkm_MNIST(img_size : list ,capicity : int, fdim : int):
-    c = capicity
+def create_preimage_genrkm_MNIST(img_size : list ,capacity : int, fdim : int):
+    c = capacity
     output_channel = img_size[0]
     return nn.Sequential(
         nn.Linear(fdim, c * 2 * 7 * 7),
@@ -16,9 +16,9 @@ def create_preimage_genrkm_MNIST(img_size : list ,capicity : int, fdim : int):
         nn.Sigmoid(),
     )
 
-def create_featuremap_genrkm_MNIST(img_size : list, capicity : int, fdim : int):
+def create_featuremap_genrkm_MNIST(img_size : list, capacity : int, fdim : int):
     input_channel = img_size[0]
-    c = capicity
+    c = capacity
     return nn.Sequential(
         nn.Conv2d(in_channels = input_channel, out_channels = c, kernel_size=4, stride=2, padding=1),
         nn.LeakyReLU(negative_slope=0.2),
@@ -27,3 +27,24 @@ def create_featuremap_genrkm_MNIST(img_size : list, capicity : int, fdim : int):
         nn.Flatten(),
         nn.Linear(c * 2 * 7 * 7, fdim)
     )
+
+
+def create_featuremap_genrkm_synthetic2D(fdim : int ,input_size = 2):
+
+    return nn.Sequential(
+        nn.Linear(input_size, 64),
+        nn.Tanh(),
+        nn.Linear(64, fdim),
+        #nn.Tanh(),
+    )
+
+def create_preimagemap_genrkm_synthetic2D(fdim : int, input_size = 2):
+
+    return nn.Sequential(
+        nn.Linear(fdim, 64),
+        nn.Tanh(),
+        nn.Linear(64, input_size),
+        #nn.Tanh(),
+    )
+
+

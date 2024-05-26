@@ -167,32 +167,3 @@ class St_RKM():
         },
         model_save_path + model_name)
 
-    def random_generation(self,
-                          g_num : int,
-                          save_model_path,
-                          save_images_path,
-                          grid_row_size = 5):
-        strkm_model = torch.load(save_model_path, map_location=torch.device('cpu'))
-        self.Encoder_Net.load_state_dict(strkm_model['FeatureMapNet_sd'])
-        self.Decoder_Net.load_state_dict(strkm_model['PreImageMapNet_sd'])
-        h = strkm_model['h']
-        U = strkm_model['U']
-        with torch.no_grad():
-            gmm = GaussianMixture(n_components=1, covariance_type='full', random_state=0).fit(h.numpy())
-            z = gmm.sample(g_num)
-            z = torch.FloatTensor(z[0])
-            X_gen = self.Decoder_Net(torch.t(torch.mm(U, torch.t(z))))
-            cur_time = int(time.time())
-            grid_size = grid_row_size ** 2
-            if g_num % grid_size == 0:
-                batch_num = int(g_num // grid_size)
-            else:
-                batch_num = int(g_num // grid_size) + 1
-            for i in range(batch_num):
-                start_idx = i * grid_size
-                end_idx = min((i + 1) * grid_size, g_num)
-                batch_images = X_gen[start_idx:end_idx]
-                name = f"stRKM_generated_images_{cur_time}_{i}.png"
-                torchvision.utils.save_image(batch_images,
-                                             save_images_path + name,
-                                             nrow=grid_row_size, )
