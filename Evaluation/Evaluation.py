@@ -23,7 +23,7 @@ print(device)
 classifier_Path = '../SavedModels/classifiers/resnet18_mnist_f1716575624_acc994.pth'
 resnet18 = torch.load(classifier_Path, map_location=torch.device('cpu'))
 
-rkm_model = torch.load('../SavedModels/PrimalRKM_ubMNIST456_1716756555_s10_b300.pth', map_location=torch.device('cpu'))
+rkm_model = torch.load('../SavedModels/RLSclass_PrimalRKM_ubMNIST_umap_1718815553_s10_b300.pth', map_location=torch.device('cpu'))
 img_size = [1, 28, 28]
 
 def eval_kl_div(gen_labels, classes = None):
@@ -63,7 +63,7 @@ def eval_mode_counts(gen_labels, classes : list):
 
     return count_dict
 
-def evaluation(classifier, rkm_model,
+def evaluation_preview(classifier, rkm_model,
                g_num : int, labels : list,
                minority_labels : list, l : int,
                rounding_digits = 4):
@@ -81,8 +81,9 @@ def evaluation(classifier, rkm_model,
         x_gen = pi_model(torch.t(torch.mm(U, torch.t(z))))#generated samples
 
         #classify generated samples
-        pred_out = classifier(x_gen)
-        _, pred = torch.max(pred_out.data, 1) #raw predicted labels, in a torch.tensor form
+    classifier.eval()
+    pred_out = classifier(x_gen)
+    _, pred = torch.max(pred_out.data, 1) #raw predicted labels, in a torch.tensor form
 
     #evaluation
     #percentage of valid generated samples
@@ -98,7 +99,14 @@ def evaluation(classifier, rkm_model,
 
     return counts_dict
 
+def evaluation_expr():
+
+
+
+    pass
+
 
 #test code
-dict = evaluation(resnet18, rkm_model, 1000, [4,5,6], None, 5)
+dict = evaluation_preview(resnet18, rkm_model, 10000, [0,1,2], [2], 3)
+
 print(dict)

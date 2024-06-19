@@ -10,77 +10,34 @@ import torchvision
 from utils.NNstructures import *
 from Data.Data_Factory import *
 from Data.Data_Factory_v2 import *
+import umap
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
-
-
-class FeatureMap_Net(nn.Module):
-    '''
-    Initialize NN class for feature map
-    '''
-
-    def __init__(self, F_model: nn.Sequential):
-        super(FeatureMap_Net, self).__init__()
-        self.model = F_model
-
-    def forward(self, x):
-        return self.model(x)
-
-class PreImageMap_Net(nn.Module):
-    """
-    Initialize NN class for pre image map
-    """
-    def __init__(self, PI_model : nn.Sequential):
-        super(PreImageMap_Net, self).__init__()
-        self.model = PI_model
-    def forward(self, x):
-        return self.model(x)
-
 
 class RLS_Primal_Gen_RKM:
     '''
     Primal Gen RKM with RLS sampling in each iteration for balance correction
     '''
     def __init__(self,
-                 FeatureMap_model : nn.Sequential,
-                 PreImageMap_model : nn.Sequential,
+                 FeatureMap_Net : nn.Module,
+                 PreImageMap_Net : nn.Module,
                  h_dim : int,
                  img_size : list, #img_size : [c,w,h]
                  device):
+        self.training_time = None
+        self.s = None
+        self.h = None
+        self.U = None
         self.device = device
-        self.FeatureMap_model = FeatureMap_model
-        self.PreImageMap_model = PreImageMap_model
+        self.FeatureMap_Net = FeatureMap_Net.to(device)
+        self.PreImageMap_Net = PreImageMap_Net.to(device)
         self.h_dim = h_dim
         self.img_size = img_size
 
-        class FeatureMap_Net(nn.Module):
-            '''
-            Initialize NN class for feature map
-            '''
-            def __init__(self, F_model : nn.Sequential):
-                super(FeatureMap_Net, self).__init__()
-                self.model = F_model
-            def forward(self, x):
-                return self.model(x)
 
-        class PreImageMap_Net(nn.Module):
-            """
-            Initialize NN class for pre image map
-            """
-            def __init__(self, PI_model : nn.Sequential):
-                super(PreImageMap_Net, self).__init__()
-                self.model = PI_model
-            def forward(self, x):
-                return self.model(x)
-
-        #Initialize NN class
-        self.FeatureMap_Net = FeatureMap_Net(FeatureMap_model).to(self.device)
-        self.PreImageMap_Net = PreImageMap_Net(PreImageMap_model).to(self.device)
-
-
-    def compute_RLS(self, Phi_X, gamma = 1e-3, guassian_sketching = False, s_d = 25, umap = False):
+    def compute_RLS(self, Phi_X, gamma = 1e-4, guassian_sketching = False, s_d = 25, use_umap = False, umap_d = 25):
         '''
         function to compute ridge leverage score
         '''
@@ -89,15 +46,20 @@ class RLS_Primal_Gen_RKM:
                 S = torch.randn(Phi_X.size(1), s_d) / torch.sqrt(torch.tensor(s_d, dtype=torch.float))
                 S = S.to(self.device)
                 Phi_X = torch.mm(Phi_X, S)
+            if use_umap:
+                reducer = umap.UMAP(n_components=umap_d)
+                Phi_X = reducer.fit_transform(Phi_X.cpu().numpy())
+                Phi_X = torch.FloatTensor(Phi_X).to(self.device)
             C = torch.mm(torch.t(Phi_X), (Phi_X)) #covariance matrix
             ridgeParam = Phi_X.size(0) * gamma #ridge parameter
             F = torch.linalg.cholesky(C + ridgeParam * torch.eye(C.size(0), device=self.device))
             B = torch.cholesky_solve(torch.t(Phi_X), F)
             ls = torch.diagonal(torch.mm(Phi_X, B))
-            # min_val = torch.min(ls)
-            # max_val = torch.max(ls)
-            # ls_scaled = (ls - min_val) / (max_val - min_val)
-        return ls
+            #ls = ls / torch.sum(ls)
+            min_val = torch.min(ls)
+            max_val = torch.max(ls)
+            ls_scaled = (ls - min_val) / (max_val - min_val)
+        return ls_scaled
 
     def primal_KPCA(self, X):
         '''
@@ -154,8 +116,8 @@ class RLS_Primal_Gen_RKM:
                 num_samples_stage1 = 20 * batch_size
                 samples_idx_stage1 = torch.randperm(dataset.data.size(0))[: num_samples_stage1]
                 X_stage1 = dataset.data[samples_idx_stage1, :, :, :].to(self.device)
-                Phi_X_stage1 = self.FeatureMap_Net(X_stage1)
-                rls = self.compute_RLS(Phi_X_stage1, guassian_sketching=True)
+                Phi_X_stage1 = feature_extractor(X_stage1)
+                rls = self.compute_RLS(Phi_X_stage1, use_umap=False)
                 if batch_num + 1 == (N_subset // batch_size):
                     samples_idx_stage2 = samples_idx_stage1[torch.multinomial(rls, (N % batch_size), replacement=True)]
                 else:
@@ -171,13 +133,14 @@ class RLS_Primal_Gen_RKM:
 
     def train(self, dataset : Dataset, epoch_num : int, batch_size : int,
               learning_rate, model_save_path, N_subset : int,
-              dataset_name):
+              dataset_name, save = True):
         '''
         Main training function
         perform RLS sampling in each iteration,
         two-stage sampling is implemented for computation efficiency
         '''
         #Initialize optimizer
+        training_start_time = time.time()
         params = list(self.FeatureMap_Net.parameters()) + list(self.PreImageMap_Net.parameters())
         optimizer = torch.optim.Adam(params, lr=learning_rate, weight_decay=0)
         N = dataset.data.size(0)  #total samples number
@@ -206,7 +169,7 @@ class RLS_Primal_Gen_RKM:
                 ####################
                 Phi_X_stage1 = self.FeatureMap_Net(X_stage1)
                 #compute rls for each samples, returned tensor shape : 20 * batchsize
-                rls = self.compute_RLS(Phi_X_stage1, guassian_sketching=True)
+                rls = self.compute_RLS(Phi_X_stage1, use_umap=False)
                 if batch_num + 1 == (N_subset // batch_size):
                     samples_idx_stage2 = samples_idx_stage1[torch.multinomial(rls, (N_subset % batch_size), replacement=True)]
                 else:
@@ -230,54 +193,42 @@ class RLS_Primal_Gen_RKM:
             passing_seconds = int((end_time - start_time) % 60)
             print(
                 f"epoch:{epoch + 1}/{epoch_num}, rkm_loss:{avg_loss}, J_t:{J_t.item()}, J_recon:{J_reconerr.item()}, time passing:{passing_minutes}m{passing_seconds}s.")
-            U, h, s = self.final_compute(dataset, batch_size, N_subset=N_subset)
-            # save model
+        U, h, s = self.final_compute(dataset, batch_size, N_subset=N_subset)
+        training_end_time = time.time()
+        training_time = round(training_end_time - training_start_time,1)
+        print(f'Training time: {training_time} seconds')
+        # save model
         cur_time = int(time.time())
         model_name = f'RLS_PrimalRKM_{dataset_name}_{cur_time}_s{self.h_dim}_b{batch_size}.pth'
-        torch.save({
-            'FeatureMapNet_sd': self.FeatureMap_Net.state_dict(),
-            'PreImageMapNet_sd': self.PreImageMap_Net.state_dict(),
-            'U': U.detach(),
-            'h': h.detach(),
-            's': s.detach()
-        },
-            model_save_path + model_name)
+        if save:
+            torch.save({
+                'FeatureMapNet': self.FeatureMap_Net,
+                'PreImageMapNet': self.PreImageMap_Net,
+                'FeatureMapNet_sd': self.FeatureMap_Net.state_dict(),
+                'PreImageMapNet_sd': self.PreImageMap_Net.state_dict(),
+                'U': U.detach(),
+                'h': h.detach(),
+                's': s.detach()
+            },
+                model_save_path + model_name)
+        else:
+            self.U = U.detach().cpu()
+            self.h = h.detach().cpu()
+            self.s = s.detach().cpu()
+            self.PreImageMap_Net = self.PreImageMap_Net.cpu()
+            self.FeatureMap_Net = self.FeatureMap_Net.cpu()
+            self.training_time = training_time
 
-    def random_generation(self,
-                          save_model_path,
-                          grid_row_size = 5,
-                          l = 1):
-        '''
-        function for random generation
-        '''
-        #Load saved model
-        rkm_model = torch.load(save_model_path, map_location=torch.device('cpu'))
-        self.FeatureMap_Net.load_state_dict(rkm_model['FeatureMapNet_sd'])
-        self.PreImageMap_Net.load_state_dict(rkm_model['PreImageMapNet_sd'])
-        h = rkm_model['h'].detach()
-        #print(h.shape)
-        U = rkm_model['U'].detach()
-        s = rkm_model['s'].detach()
-        #Generation
-        fig, ax = plt.subplots(grid_row_size, grid_row_size)
+    def random_generation(self, n_samples: int,
+                          l: int):
         with torch.no_grad():
-            gmm = GaussianMixture(n_components=l, covariance_type='full', random_state=0).fit(h.numpy())
-            #gmm = BayesianGaussianMixture(n_components=l, covariance_type='full', weight_concentration_prior_type='dirichlet_process', random_state=0).fit(h.numpy())
-            z = gmm.sample(int((grid_row_size ** 2) * 10))
+            gmm = GaussianMixture(n_components=l, covariance_type='full').fit(self.h.numpy())
+            z = gmm.sample(n_samples)
             z = torch.FloatTensor(z[0])
-            perm2 = torch.randperm(z.size(0))
-            it = 0
-            for i in range(grid_row_size):
-                for j in range(grid_row_size):
-                    x_gen = self.PreImageMap_Net(torch.mv(U, z[perm2[it],:]).unsqueeze(0)).numpy()
-                    x_gen = x_gen.reshape(1, 28, 28)
-                    ax[i, j].imshow(x_gen[0, :], cmap='Greys_r')
-                    ax[i, j].set_xticks([])
-                    ax[i, j].set_yticks([])
-                    it += 1
-            plt.suptitle('Randomly generated samples')
-            plt.show()
+            z = z[torch.randperm(z.size(0)), :]  # random permute order of z
+            x_gen = self.PreImageMap_Net(torch.t(torch.mm(self.U, torch.t(z))))  # generated samples
 
+        return x_gen
 
 
 if __name__ == '__main__':
@@ -291,12 +242,16 @@ if __name__ == '__main__':
     #full_MNIST = get_mnist_dataloader(400, '../Data/Data_Store')
     #print(full_MNIST.dataset.data.shape)
 
-    ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes = np.asarray([1,2,3,4,5,6,7,8,9]),
+    rkm_params = {'capacity': 32, 'fdim': 300}
+
+    ub_MNIST456 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes = np.asarray([0,1,2,3,4]),
                                      selected_classes= np.asarray([0,1,2,3,4,5,6,7,8,9]), unbalanced_ratio=0.1)
 
-    img_size = list(ub_MNIST012.data[0].size())
-    f_model = create_featuremap_genrkm_MNIST(img_size,32,300)
-    pi_model = create_preimage_genrkm_MNIST(img_size,32,300)
-    gen_rkm = RLS_Primal_Gen_RKM(f_model, pi_model, 10, img_size, device)
-    gen_rkm.train(ub_MNIST012, 150, 300, 1e-4,'../SavedModels/', dataset_name='ubMNIST012', N_subset=ub_MNIST012.data.size(0))
+    img_size = list(ub_MNIST456.data[0].size())
+    #print(feature_extractor(ub_MNIST456.data[:100].to(device)).shape)
+
+    f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size,**rkm_params))
+    pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
+    gen_rkm = RLS_Primal_Gen_RKM(f_net, pi_net, 10, img_size, device)
+    gen_rkm.train(ub_MNIST456, 150, 300, 1e-4,'../SavedModels/', dataset_name='ubMNIST012', N_subset=ub_MNIST456.data.size(0))
     #gen_rkm.random_generation('../SavedModels/RLS_PrimalRKM_ubMNIST012_1715861310_s10_b300.pth', 10, l=10)

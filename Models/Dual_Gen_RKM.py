@@ -10,13 +10,12 @@ import torchvision
 from utils.NNstructures import *
 from Data.Data_Factory import *
 from Data.Data_Factory_v2 import *
-import umap
-import pandas as pd
+
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
 
-class Primal_Gen_RKM():
+class Dual_Gen_RKM():
     '''
     class for Gen-RKM model, but in primal form
     '''
@@ -35,30 +34,36 @@ class Primal_Gen_RKM():
         self.h_dim = h_dim
         self.img_size = img_size
 
-
-    def primal_KPCA(self, X):
+    def dual_KPCA(self,X,use_cpu = False):
         '''
-        perform KPCA in primal form
+        perform KPCA in dual form
         '''
         Phi_X = self.FeatureMap_Net(X)
         if torch.isnan(Phi_X).any():
             print(Phi_X)
             raise ValueError('Phi_X contains NaN values')
-        N = Phi_X.size(0)
-        cC = torch.cov(torch.t(Phi_X), correction=0) * N
-        U, s, _ = torch.svd(cC, some=False)
-        if torch.isnan(U).any() or torch.isnan(s).any():
-            print(U, s)
-            raise ValueError('U or s contains NaN values')
-        return Phi_X, U[:, :self.h_dim] * torch.sqrt(s[:self.h_dim]), torch.diag(s[:self.h_dim])
+        K = torch.mm(Phi_X, torch.t(Phi_X))
+        if use_cpu:
+            nh1 = K.size(0)
+            oneN = torch.div(torch.ones(nh1, nh1), nh1).to(torch.device("cpu"))
+            K = K.to(torch.device("cpu"))
+            Phi_X = Phi_X.to(torch.device("cpu"))
+        else:
+            nh1 = K.size(0)
+            oneN = torch.div(torch.ones(nh1, nh1), nh1).to(self.device)
+        cK = K - torch.mm(oneN, K) - torch.mm(K, oneN) + torch.mm(torch.mm(oneN, K),oneN)  # centering the kernel matrix
+        h, s, _ = torch.svd(cK, some=False)
+        return Phi_X, h[:, :self.h_dim], torch.diag(s[:self.h_dim])
 
-    def RKM_loss(self, X, c_acc = 100):
+    def RKM_loss(self, X, c_acc):
         '''
         compute RKM loss
         '''
-        Phi_X, U, s = self.primal_KPCA(X)
-        h = torch.div(torch.mm(Phi_X, U), torch.norm(torch.mm(Phi_X, U), dim=0)) #h need to be normalized
+
+        Phi_X, h, s = self.dual_KPCA(X)  # h : left singular vectors (hidden variables) , s : diaginal matrix with singular values
+        U = torch.mm(torch.t(Phi_X), h)  # U: interconnection matrix, computed from euqation (2)
         x_tilde = self.PreImageMap_Net(torch.t(torch.mm(U, torch.t(h))))  # x_tilde : reconstructed data
+
         # Define loss
         recon_loss = nn.MSELoss().to(self.device)
         ipVec_dim = int(np.prod(self.img_size))
@@ -69,6 +74,7 @@ class Primal_Gen_RKM():
         # KPCA loss
         f1 = torch.trace(torch.mm(torch.mm(Phi_X, U), torch.t(h)))
         f2 = 0.5 * torch.trace(torch.mm(h, torch.mm(s, torch.t(h))))  # regularization on h
+        # f2 = 0.5 * torch.diagonal(s)[0].item() * torch.trace(torch.mm(h, torch.t(h)))
         f3 = 0.5 * torch.trace(torch.mm(torch.t(U), U))  # regularization on U
 
         # stablizing the loss
@@ -78,17 +84,15 @@ class Primal_Gen_RKM():
 
         return loss, J_t, J_reconerr
 
-    def final_compute(self,
-                      dataloader : DataLoader,
-                      oversampling = False):
+    def final_compute(self, dataloader):
         '''
-        final compute SVD on full dataset (in primal form)
+        compute the embeddings of the full dataset
         '''
         with torch.no_grad():
-            x = dataloader.dataset.data.to(self.device)
-            Phi_X, U, s = self.primal_KPCA(x)
-            h = torch.div(torch.mm(Phi_X, U), torch.norm(torch.mm(Phi_X, U), dim=0))  #renormalize h
-            return U, h, s
+            X = dataloader.dataset.data.to(self.device)
+            Phi_X, h, s = self.dual_KPCA(X, use_cpu=True)
+            U = torch.mm(torch.t(Phi_X), h)
+        return U, h, s
 
     def train(self, dataloader : DataLoader, epoch_num : int,
               learning_rate, model_save_path,
@@ -96,6 +100,7 @@ class Primal_Gen_RKM():
         #Initialize optimizer
         params = list(self.FeatureMap_Net.parameters()) + list(self.PreImageMap_Net.parameters())
         optimizer = torch.optim.Adam(params, lr=learning_rate, weight_decay=0)
+        #training loop
         for epoch in range(epoch_num):
             avg_loss = 0
             start_time = time.time()
@@ -109,9 +114,6 @@ class Primal_Gen_RKM():
                 loss, J_t, J_reconerr = self.RKM_loss(imgs, 100)
                 optimizer.zero_grad()
                 loss.backward()
-                # Gradient clipping
-                torch.nn.utils.clip_grad_norm_(params, max_norm=2.0)
-
                 optimizer.step()
                 avg_loss += loss.detach().cpu().numpy()
             end_time = time.time()
@@ -122,7 +124,7 @@ class Primal_Gen_RKM():
         U, h, s = self.final_compute(dataloader)
         # save model
         cur_time = int(time.time())
-        model_name = f'PrimalRKM_{dataset_name}_{cur_time}_s{self.h_dim}.pth'
+        model_name = f'DualRKM_{dataset_name}_{cur_time}_s{self.h_dim}.pth'
         if save:
             torch.save({
                 'FeatureMapNet' : self.FeatureMap_Net,
@@ -153,55 +155,11 @@ class Primal_Gen_RKM():
         return x_gen
 
 
-
-
-if __name__ == '__main__':
-
-    #######################
-    ##experiment on unbalanced 012MNIST data (oversampling)
-    #######################
-    b_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([0,1,2,3,4]), unbalanced=True,
-                                               selected_classes=np.asarray([0,1,2,3,4,5,6,7,8,9]), batchsize=300,unbalanced_ratio=0.1)
-    # ub_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([5]), unbalanced=True, unbalanced_ratio=0.1,
-    #                                            selected_classes=np.asarray([4, 5, 6]), batchsize=300)
-
-    # ub_MNIST012 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes = np.asarray([1,2,3,4,5,6]),
-    #                                  selected_classes= np.asarray([1,2,3,4,5,6,7,8,9,0]), unbalanced_ratio=0.1, batchsize=300)
-
-    #full_MNIST = get_mnist_dataloader(400, '../Data/Data_Store')
-    #print(full_MNIST.dataset.data.shape)
-    rkm_params = {'capacity': 32, 'fdim': 300}
-    #
-    img_size = list(next(iter(b_MNIST456))[0].size()[1:])
-    f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size,**rkm_params))
-    pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
-    gen_rkm = Primal_Gen_RKM(f_net, pi_net, 10, img_size, device)
-    gen_rkm.train(b_MNIST456, 150, 1e-4, '../SavedModels/', dataset_name='ubMNIST',save=True)
-    # print(gen_rkm.h.shape, gen_rkm.U.shape, gen_rkm.s.shape)
-    # x_gen = gen_rkm.random_generation(300, 3)
-    # print(x_gen.shape)
-    #gen_rkm.random_generation('../SavedModels/PrimalRKM_bMNIST456_1716546903_s10_b300.pth',10, l=5)
-    #gen_rkm.reconstruction_vis(save_model_path='../SavedModels/PrimalRKM_bMNIST456_1716546903_s10_b300.pth',
-    #                         dataloader=b_MNIST456, per_mode=False)
-    # #
-    # gen_rkm.vis_latentspace_v2('../SavedModels/PrimalRKM_FullubMNIST-ub123456-Demo_1716228024_s2_b300.pth', ub_MNIST012)
-
-
-
-    #######################
-    ##experiment on Ring2D data
-    #######################
-
-    #training phase
-
-    #balanced case:
-
-    # ring2D,_ = get_unbalanced_ring2d_dataloader(300,10000, minority_modes_num=0,modes_num=8,unbalanced=False)
-    # print(ring2D.dataset.data.shape)
-    # input_size = 2
-    # f_net = FeatureMap_Net(create_featuremap_genrkm_synthetic2D(100,input_size))
-    # pi_net = PreImageMap_Net(create_preimagemap_genrkm_synthetic2D(100,input_size))
-    # rkm = Primal_Gen_RKM(f_net,pi_net,2,[2],device)
-    # #print(rkm.FeatureMap_Net)
-    # rkm.train(ring2D, 150, 1e-4, '../SavedModels/', dataset_name='baRing2D')
-
+# b_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([3,4,5]), unbalanced=False,
+#                                            selected_classes=np.asarray([3,4,5]), batchsize=200)
+# rkm_params = {'capacity': 32, 'fdim': 300}
+# img_size = list(next(iter(b_MNIST456))[0].size()[1:])
+# f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size, **rkm_params))
+# pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
+# gen_rkm = Dual_Gen_RKM(f_net, pi_net, 10, img_size, device)
+# gen_rkm.train(b_MNIST456, 100, 1e-4, '../SavedModels/', dataset_name='bMNIST345',save=True)

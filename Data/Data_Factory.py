@@ -233,21 +233,3 @@ the class automobile. Now, the class 6 consisting of frogs is depleted with a fa
 '''
 
 
-
-if __name__ == '__main__':
-
-    #some test codes
-    #dl,_ = get_unbalanced_ring2d_dataloader(64,5000,4, modes_num=8)
-    ub_MNIST = get_unbalanced_MNIST_dataloader('Data_Store', unbalanced_classes = np.asarray([2]),
-                                     selected_classes= np.asarray([0,1,2]))
-    # b_MNIST = get_unbalanced_MNIST_dataloader('Data_Store', unbalanced_classes = np.asarray([0,1,2]),selected_classes= np.asarray([0,1,2]),unbalanced=False)
-    # print(ub_MNIST.dataset.data.shape)
-    # print(b_MNIST.dataset.data.shape)
-    # MNIST_dataloader = get_mnist_dataloader(64,data_root='Data_Store',subsample_num=10000)
-    # print(MNIST_dataloader.dataset.data.shape)
-    # print(Counter(list(np.ravel(MNIST_dataloader.dataset.target))))
-    # img,_ = next(iter(enumerate(MNIST_dataloader)))
-    # print(next(iter(enumerate(MNIST_dataloader)))[1][0][0].shape)
-    # print(next(iter(enumerate(ub_MNIST)))[1][0][0])
-    #get_unbalanced_MNIST_dataloader('Data_Store', unbalanced_classes = np.asarray([2]),
-    #                                selected_classes= np.asarray([0,1,2]))

@@ -3,6 +3,27 @@ import torch.nn as nn
 '''
 Store NN structures used for different models
 '''
+class FeatureMap_Net(nn.Module):
+    '''
+    Initialize NN class for feature map
+    '''
+
+    def __init__(self, F_model: nn.Sequential):
+        super(FeatureMap_Net, self).__init__()
+        self.model = F_model
+
+    def forward(self, x):
+        return self.model(x)
+
+class PreImageMap_Net(nn.Module):
+    """
+    Initialize NN class for pre image map
+    """
+    def __init__(self, PI_model : nn.Sequential):
+        super(PreImageMap_Net, self).__init__()
+        self.model = PI_model
+    def forward(self, x):
+        return self.model(x)
 def create_preimage_genrkm_MNIST(img_size : list ,capacity : int, fdim : int):
     c = capacity
     output_channel = img_size[0]
