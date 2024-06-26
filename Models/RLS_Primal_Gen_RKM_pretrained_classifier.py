@@ -121,15 +121,18 @@ class RLS_Primal_Gen_RKM_class:
         perform KPCA in primal form
         '''
         Phi_X = self.FeatureMap_Net(X)
-        if torch.isnan(Phi_X).any():
-            print(Phi_X)
-            raise ValueError('Phi_X contains NaN values')
+        assert not torch.isnan(Phi_X).any(), "Phi_X contains NaN after FeatureMap_Net"
+        assert not torch.isinf(Phi_X).any(), "Phi_X contains Inf after FeatureMap_Net"
         N = Phi_X.size(0)
         cC = torch.cov(torch.t(Phi_X), correction=0) * N
+        assert not torch.isnan(cC).any(), "cC contains NaN"
+        assert not torch.isinf(cC).any(), "cC contains Inf"
+
         U, s, _ = torch.svd(cC, some=False)
-        if torch.isnan(U).any() or torch.isnan(s).any():
-            print(U, s)
-            raise ValueError('U or s contains NaN values')
+        assert not torch.isnan(U).any(), "U contains NaN"
+        assert not torch.isinf(U).any(), "U contains Inf"
+        assert not torch.isnan(s).any(), "s contains NaN"
+        assert not torch.isinf(s).any(), "s contains Inf"
         return Phi_X, U[:, :self.h_dim] * torch.sqrt(s[:self.h_dim]), torch.diag(s[:self.h_dim])
 
     def RKM_loss(self, X, c_acc=100):
@@ -194,7 +197,7 @@ class RLS_Primal_Gen_RKM_class:
             #print(Phi_X_rls_batch.shape)
             Phi_X_rls.append(Phi_X_rls_batch)
         Phi_X_rls = torch.cat(Phi_X_rls, dim=0)
-        print(Phi_X_rls.shape)
+        #print(Phi_X_rls.shape)
 
         rls = self.compute_RLS(Phi_X_rls, use_umap= self.use_umap, umap_d=25)
 
@@ -213,7 +216,15 @@ class RLS_Primal_Gen_RKM_class:
                 loss, J_t, J_reconerr = self.RKM_loss(imgs, 100)
                 optimizer.zero_grad()
                 loss.backward()
-                # Gradient clipping
+                # Gradient checking
+                # for name, param in self.FeatureMap_Net.named_parameters():
+                #     if param.grad is not None:
+                #         if torch.isnan(param.grad).any():
+                #             print(f"Gradient for {name} contains NaN: {param.grad}")
+                #             for name, param in self.FeatureMap_Net.named_parameters():
+                #                 print(name, param.grad)
+                #             raise ValueError(f"Gradient for {name} contains NaN")
+
                 torch.nn.utils.clip_grad_norm_(params, max_norm=2.0)
 
                 optimizer.step()
@@ -270,19 +281,21 @@ class RLS_Primal_Gen_RKM_class:
 
         return x_gen
 
+if __name__ == '__main__':
 
-rkm_params = {'capacity': 32, 'fdim': 300}
 
-ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([2]),
-                                           selected_classes=np.asarray([0,1,2]), unbalanced_ratio=0.1)
+    rkm_params = {'capacity': 32, 'fdim': 300}
 
-img_size = list(ub_MNIST012.data[0].size())
+    ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([2]),
+                                               selected_classes=np.asarray([0,1,2]), unbalanced_ratio=0.1)
+
+    img_size = list(ub_MNIST012.data[0].size())
 #print(ub_MNIST012.data[:100].expand(-1, 3, -1, -1).shape)
 
 #print(extractor_features(ub_MNIST012.data[:100].to(device)).shape)
 
 
-f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size, **rkm_params))
-pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
-gen_rkm = RLS_Primal_Gen_RKM_class(f_net, pi_net, 10, img_size, device, classifier='resnet18', use_umap=True) #resnet18 is preferred umap_d = 25
-gen_rkm.train(ub_MNIST012, 150, 300, 1e-4, '../SavedModels/', dataset_name='ubMNIST_umap')
+    f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size, **rkm_params))
+    pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
+    gen_rkm = RLS_Primal_Gen_RKM_class(f_net, pi_net, 10, img_size, device, classifier='resnet18', use_umap=True) #resnet18 is preferred umap_d = 25
+    gen_rkm.train(ub_MNIST012, 150, 328, 1e-4, '../SavedModels/', dataset_name='ubMNIST012_umap_demo')

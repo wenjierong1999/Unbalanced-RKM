@@ -154,7 +154,18 @@ class Dual_Gen_RKM():
 
         return x_gen
 
+if __name__ == '__main__':
+    rkm_params_cifar10 = {'capacity': 64, 'fdim': 400}
 
+    cifar10 = FastCIFAR10(root='../Data/Data_Store', train=True, download=True, transform=None,
+                         subsample_num=15000)
+    cifar10_dl = DataLoader(cifar10, batch_size=256, shuffle=False)
+
+    img_size = [3,32,32]
+    f_net = FeatureMap_Net(create_featuremap_genrkm_CIFAR10(img_size,**rkm_params_cifar10))
+    pi_net = PreImageMap_Net(create_preimage_genrkm_CIFAR10(img_size, **rkm_params_cifar10))
+    gen_rkm = Dual_Gen_RKM(f_net, pi_net, 10, img_size, device)
+    gen_rkm.train(cifar10_dl, 150, 1e-4, '../SavedModels/', dataset_name='Dual_CIFAR10',save=True)
 # b_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([3,4,5]), unbalanced=False,
 #                                            selected_classes=np.asarray([3,4,5]), batchsize=200)
 # rkm_params = {'capacity': 32, 'fdim': 300}

@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
@@ -8,114 +9,164 @@ from Data.Data_Factory_v2 import *
 from Data.Data_Factory import *
 import umap
 
-def rkm_random_generation_vis(rkm_model, grid_row_size = 5, l = 1):
+
+def rkm_random_generation_vis(rkm_model, grid_row_size=5, l=1):
     '''
-    visualize random generation of RKM (done on cpu)
+    Visualize random generation of RKM (done on CPU)
     '''
-    #load rkm model
+    # Load RKM model
     h = rkm_model['h'].detach().cpu().numpy()
     U = rkm_model['U'].detach().cpu()
     pi_Net = rkm_model['PreImageMapNet']
-    #generate some random samples
+
+    # Generate some random samples
     with torch.no_grad():
         gmm = GaussianMixture(n_components=l, covariance_type='full').fit(h)
         z = gmm.sample(grid_row_size ** 2)
-        #z = torch.FloatTensor(z[0])
         z = torch.FloatTensor(z[0])
         perm2 = torch.randperm(z.size(0))
         it = 0
 
-    #plotting
-        fig, ax = plt.subplots(grid_row_size, grid_row_size, figsize=(10,10))
+        # Plotting
+        fig, ax = plt.subplots(grid_row_size, grid_row_size, figsize=(10, 10))
+        fig.subplots_adjust(wspace=0, hspace=0)
+        for i in range(grid_row_size):
+            for j in range(grid_row_size):
+                x_gen = pi_Net(torch.mv(U, z[perm2[it], :]).unsqueeze(0)).cpu().numpy()
+                print(x_gen.shape)
+
+                # Reshape x_gen based on img_size
+                if x_gen.shape[1] == 3:  # If image has 3 channels (e.g., CIFAR-10)
+                    img = x_gen[0].transpose(1, 2, 0)  # Change shape to (H, W, C)
+                    ax[i, j].imshow(img)
+                else:  # If image has 1 channel (e.g., MNIST)
+                    img = x_gen[0, 0, :, :]  # Shape (H, W)
+                    ax[i, j].imshow(img, cmap='Greys_r')
+
+                ax[i, j].set_xticks([])
+                ax[i, j].set_yticks([])
+                it += 1
+    plt.suptitle('Unbalanced MNIST012')
+    plt.show()
+
+
+def rkm_random_generation_vis_highlight_minorities(rkm_model, classifier, minority_labels, grid_row_size=5, l=1):
+    '''
+    Visualize random generation of RKM (done on cpu)
+    classify the generated samples using the classifier and highlight the minority labels using red broader
+    '''
+    # Load RKM model
+    h = rkm_model['h'].detach().cpu().numpy()
+    U = rkm_model['U'].detach().cpu()
+    pi_Net = rkm_model['PreImageMapNet']
+
+    # Generate some random samples
+    with torch.no_grad():
+        gmm = GaussianMixture(n_components=l, covariance_type='full').fit(h)
+        z = gmm.sample(grid_row_size ** 2)
+        z = torch.FloatTensor(z[0])
+        perm2 = torch.randperm(z.size(0))
+        it = 0
+
+        # Plotting
+        fig, ax = plt.subplots(grid_row_size, grid_row_size, figsize=(10, 10))
         fig.subplots_adjust(wspace=0, hspace=0)
         for i in range(grid_row_size):
             for j in range(grid_row_size):
                 x_gen = pi_Net(torch.mv(U, z[perm2[it], :]).unsqueeze(0)).numpy()
                 x_gen = x_gen.reshape(1, 28, 28)
+
+                # Use the classifier to predict the label of the generated sample
+                classifier.eval()
+                x_gen_tensor = torch.tensor(x_gen, requires_grad=False, dtype=torch.float32).unsqueeze(0)
+                pred_label = classifier(x_gen_tensor).argmax(dim=1).item()
+
+                # Plot the image
                 ax[i, j].imshow(x_gen[0, :], cmap='Greys_r')
                 ax[i, j].set_xticks([])
                 ax[i, j].set_yticks([])
+
+                # If the predicted label is in minority_labels, draw a red rectangle around the image
+                if pred_label in minority_labels:
+                    rect = plt.Rectangle((0, 0), 27.5, 27.5, linewidth=6, edgecolor='r', facecolor='none')
+                    ax[i, j].add_patch(rect)
+
                 it += 1
-        plt.suptitle('Randomly generated samples')
-        plt.show()
+
+    plt.suptitle('RLS RKM (shared)')
+    plt.show()
 
 
-def rkm_reconsturction_vis(rkm_model, dataloader : DataLoader,
-                           grid_row_size=5, per_mode=False
-                           ):
+def rkm_reconsturction_vis(rkm_model, dataloader: DataLoader, grid_row_size=5, per_mode=False):
     '''
-    visualize reconstruction quality of RKM
+    Visualize reconstruction quality of RKM
     '''
     h = rkm_model['h'].detach().cpu()
     U = rkm_model['U'].detach().cpu()
     pi_Net = rkm_model['PreImageMapNet']
 
+    def plot_images(axs, images, img_size, title):
+        it = 0
+        for i in range(grid_row_size):
+            for j in range(grid_row_size):
+                img = images[it]
+                #print(f"Image shape before processing: {img.shape}")  # Debug print
+
+                if img.ndim == 4 and img.shape[1] == 3:  # Batch with 3 channels
+                    img = img[0].transpose(1, 2, 0)
+                    #print(f"Image shape after batch transpose: {img.shape}")  # Debug print
+                    axs[i, j].imshow(img)
+                elif img.ndim == 3 and img.shape[0] == 3:  # 3 channels
+                    img = img.transpose(1, 2, 0)
+                    #print(f"Image shape after transpose: {img.shape}")  # Debug print
+                    axs[i, j].imshow(img)
+                elif img.ndim == 3 and img.shape[0] == 1:  # 1 channel
+                    axs[i, j].imshow(img[0], cmap='Greys_r')
+                else:
+                    raise ValueError(f"Unexpected image shape: {img.shape}")
+                axs[i, j].set_xticks([])
+                axs[i, j].set_yticks([])
+                it += 1
+        plt.suptitle(title, fontsize=35, fontweight='bold')
+        plt.show()
+
     with torch.no_grad():
-        # visualize reconstruction quality under each mode
+        xtrain = dataloader.dataset.data
+        img_size = xtrain.shape[1:]
+
         if per_mode:
-            xtrain = dataloader.dataset.data
-            labels = dataloader.dataset.target
+            labels = dataloader.dataset.targets if hasattr(dataloader.dataset, 'targets') else dataloader.dataset.target
             unique_labels = labels.unique()
             for label in unique_labels:
                 idx = torch.where(labels == label)[0]
                 perm1 = torch.randperm(idx.size(0))
-                # ground truth
-                fig2, axs = plt.subplots(grid_row_size, grid_row_size)
+
+                # Ground truth
+                fig2, axs = plt.subplots(grid_row_size, grid_row_size, figsize=(10, 10))
                 fig2.subplots_adjust(wspace=0, hspace=0)
-                it = 0
-                for i in range(grid_row_size):
-                    for j in range(grid_row_size):
-                        selected_idx = idx[perm1[it]]
-                        # print('GT',selected_idx)
-                        axs[i, j].imshow(xtrain[selected_idx, 0, :, :], cmap='Greys_r')
-                        axs[i, j].set_xticks([])
-                        axs[i, j].set_yticks([])
-                        it += 1
-                fig2.suptitle(f'Ground truth (mode {label.item()})', fontsize=35, fontweight='bold')
-                plt.show()
-                # reconstruction
-                fig1, ax = plt.subplots(grid_row_size, grid_row_size)
+                images = [xtrain[idx[perm1[it]]].numpy() for it in range(grid_row_size * grid_row_size)]
+                plot_images(axs, images, img_size, f'Ground truth (mode {label.item()})')
+
+                # Reconstruction
+                fig1, axs = plt.subplots(grid_row_size, grid_row_size, figsize=(10, 10))
                 fig1.subplots_adjust(wspace=0, hspace=0)
-                it = 0
-                for i in range(grid_row_size):
-                    for j in range(grid_row_size):
-                        selected_idx = idx[perm1[it]]
-                        # print('REcon', selected_idx)
-                        xgen = pi_Net(torch.mv(U, h[selected_idx, :]).unsqueeze(0)).numpy()
-                        ax[i, j].imshow(xgen[0, 0, :, :], cmap='Greys_r')
-                        ax[i, j].set_xticks([])
-                        ax[i, j].set_yticks([])
-                        it += 1
-                fig1.suptitle(f'Reconstruction (mode {label.item()})', fontsize=35, fontweight='bold')
-                plt.show()
+                images = [pi_Net(torch.mv(U, h[idx[perm1[it]], :]).unsqueeze(0)).cpu().numpy() for it in range(grid_row_size * grid_row_size)]
+                plot_images(axs, images, img_size, f'Reconstruction (mode {label.item()})')
         else:
-            xtrain = dataloader.dataset.data
             perm1 = torch.randperm(xtrain.size(0))
-            # ground truth
-            fig2, axs = plt.subplots(grid_row_size, grid_row_size)
+
+            # Ground truth
+            fig2, axs = plt.subplots(grid_row_size, grid_row_size, figsize=(10, 10))
             fig2.subplots_adjust(wspace=0, hspace=0)
-            it = 0
-            for i in range(grid_row_size):
-                for j in range(grid_row_size):
-                    axs[i, j].imshow(xtrain[perm1[it], 0, :, :], cmap='Greys_r')
-                    axs[i, j].set_xticks([])
-                    axs[i, j].set_yticks([])
-                    it += 1
-            fig2.suptitle('Ground truth', fontsize=35, fontweight='bold')
-            plt.show()
-            # reconstruction
-            fig1, ax = plt.subplots(grid_row_size, grid_row_size)
+            images = [xtrain[perm1[it]].numpy() for it in range(grid_row_size * grid_row_size)]
+            plot_images(axs, images, img_size, 'Ground truth')
+
+            # Reconstruction
+            fig1, axs = plt.subplots(grid_row_size, grid_row_size, figsize=(10, 10))
             fig1.subplots_adjust(wspace=0, hspace=0)
-            it = 0
-            for i in range(grid_row_size):
-                for j in range(grid_row_size):
-                    xgen = pi_Net(torch.mv(U, h[perm1[it], :]).unsqueeze(0)).numpy()
-                    ax[i, j].imshow(xgen[0, 0, :, :], cmap='Greys_r')
-                    ax[i, j].set_xticks([])
-                    ax[i, j].set_yticks([])
-                    it += 1
-            fig1.suptitle('Reconstruction', fontsize=35, fontweight='bold')
-            plt.show()
+            images = [pi_Net(torch.mv(U, h[perm1[it], :]).unsqueeze(0)).cpu().numpy() for it in range(grid_row_size * grid_row_size)]
+            #print(images[0].shape)
+            plot_images(axs, images, img_size, 'Reconstruction')
 
 
 def rkm_latentspace_vis(rkm_model, dataloader : DataLoader, use_umap = False):
@@ -167,19 +218,32 @@ def rkm_latentspace_vis(rkm_model, dataloader : DataLoader, use_umap = False):
         ax_histy.hist(h[:, 1], bins=15, orientation='horizontal')
         ax_histy.invert_xaxis()
         # ax.legend(title="Labels", loc='outside upper right')
-        fig.suptitle('Latent Space')
+        fig.suptitle('Unbalanced MNIST012')
         fig.legend(handles=scatter_plots, title='Labels', loc='upper right', markerscale=8,
                    bbox_to_anchor=(1.02, 1), frameon=False)
         plt.show()
 
 
+if __name__ == '__main__':
 
-# b_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([5]), unbalanced=True,
-#                                                selected_classes=np.asarray([4, 5, 6]), batchsize=300)
-# ub_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([5]), unbalanced=True, unbalanced_ratio=0.1,
-#                                            selected_classes=np.asarray([4, 5, 6]), batchsize=300)
-rkm_model = torch.load('../SavedModels/RLSclass_PrimalRKM_ubMNIST_umap_1718815553_s10_b300.pth', map_location=torch.device('cpu'))
-# #print(rkm_model['PreImageMapNet'])
-rkm_random_generation_vis(rkm_model, 10, 3)
-# #rkm_reconsturction_vis(rkm_model, b_MNIST456, 10, per_mode=True)
-#rkm_latentspace_vis(rkm_model, ub_MNIST456, use_umap=True)
+
+    # b_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([5]), unbalanced=True,
+    #                                                selected_classes=np.asarray([4, 5, 6]), batchsize=300)
+    # ub_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([5]), unbalanced=True, unbalanced_ratio=0.1,
+    #                                            selected_classes=np.asarray([4, 5, 6]), batchsize=300)
+    # b_MNIST012 = get_unbalanced_MNIST_dataloader('../Data/Data_Store',unbalanced=True,unbalanced_classes=np.asarray([2]),
+    #                                  selected_classes= np.asarray([0,1,2]), unbalanced_ratio=0.1, batchsize=328)
+    rkm_model = torch.load('../SavedModels/RLS_PrimalRKM_ubMNIST-demo_1719346852_s10_b328.pth', map_location=torch.device('cpu'))
+    #rkm_latentspace_vis(rkm_model, b_MNIST012, use_umap=False)
+    # #print(rkm_model['PreImageMapNet'])
+    # cifar10 = FastCIFAR10(root='../Data/Data_Store', train=True, download=True, transform=None,
+    #                      subsample_num=15000)
+    # cifar10_dl = DataLoader(cifar10, batch_size=328, shuffle=False)
+    #rkm_random_generation_vis(rkm_model, 10, 3)
+    #rkm_reconsturction_vis(rkm_model, cifar10_dl, 10)
+    classifier_Path = '../SavedModels/classifiers/resnet18_mnist_f1716575624_acc994.pth'
+    resnet18 = torch.load(classifier_Path, map_location=torch.device('cpu'))
+    rkm_random_generation_vis_highlight_minorities(rkm_model,
+                                                   classifier=resnet18,
+                                                   minority_labels=[0,1,2,3,4],
+                                                   grid_row_size=15, l=10)

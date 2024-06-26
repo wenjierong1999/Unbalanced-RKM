@@ -15,12 +15,12 @@ import os
 
 '''
 RLS sampling
-Experiment on unbalanced MNIST012 dataset
+Experiment on unbalanced MNIST dataset
 
 data description:
-classical MNIST dataset with digits 0, 1, 2,
-consists of only the digits 0, 1 and 2. 
-The class 2 is depleted so that the probability of sampling 2 is only 0.1 times the probability of sampling from the digit 0 or 1.
+classical MNIST dataset with all digits 0-9.
+The classes 0, 1, 2, 3, and 4 are all depleted so that the probability of sampling 
+out of the minority classes is only 0.05 times the probability of sampling from the majority digits.
 
 candidate models:
 vanilla Gen-RKM
@@ -59,8 +59,8 @@ print(device)
 num_repeat_expr = 10  #number of repeat experiments
 expr_records = []  #record of expr results
 rkm_params = {'capacity': 32, 'fdim': 300}
-unbalanced_classes = np.asarray([2])  #minority classes is digit 2
-selected_classes = np.asarray([0, 1, 2])  #selected classes (digits 0 1 2)
+unbalanced_classes = np.asarray([0,1,2,3,4])  #minority classes is digit 2
+selected_classes = np.asarray([0,1,2,3,4,5,6,7,8,9])  #selected classes (digits 0 1 2)
 unbalanced_ratio = [0.1]  #unbalance ratio
 
 #training setting
@@ -79,7 +79,7 @@ resnet18 = resnet18.to(torch.device('cpu'))
 ## RKM
 #################
 start_time = time.time()
-file_name = f'expr_MNIST012_{int(start_time)}'
+file_name = f'expr_MNIST_{int(start_time)}'
 os.mkdir(os.path.join('./expr_results', file_name))
 
 model_name = 'Vanilla RKM'
@@ -100,17 +100,19 @@ for expr_it in range(num_repeat_expr):
             #train model
             gen_rkm.train(ub_MNIST012_dl, num_epochs, 1e-4, './SavedModels/',
                           dataset_name='ubMNIST012', save=False)
-            x_gen = gen_rkm.random_generation(10000, 3)
+            x_gen = gen_rkm.random_generation(10000, 10)
+            torch.cuda.empty_cache()
             #evaluate
-            eval_dict = evaluation_expr(resnet18, x_gen, labels=list(selected_classes),
-                                        minority_labels=list(unbalanced_classes))
-            eval_dict.update({'model_name': model_name,
-                              'training_time': gen_rkm.training_time,
-                              'expr_it': int(expr_it + 1)})
+            with torch.no_grad():
+                eval_dict = evaluation_expr(resnet18, x_gen, labels=list(selected_classes),
+                                            minority_labels=list(unbalanced_classes))
+                eval_dict.update({'model_name': model_name,
+                                  'training_time': gen_rkm.training_time,
+                                  'expr_it': int(expr_it + 1)})
 
-            print(eval_dict)
-            expr_records.append(eval_dict)
-            gc.collect()
+                print(eval_dict)
+                expr_records.append(eval_dict)
+                gc.collect()
             break  # Break the loop if training and evaluation succeed
         except Exception as e:
             print(f"Error during training iteration {expr_it + 1} for {model_name}: {e}")
@@ -140,17 +142,19 @@ for expr_it in range(num_repeat_expr):
             #train model
             gen_rkm.train(ub_MNIST012, num_epochs, batch_size, 1e-4, './SavedModels/',
                           dataset_name='ubMNIST012', save=False)
-            x_gen = gen_rkm.random_generation(10000, 3)
-            #evaluate
-            eval_dict = evaluation_expr(resnet18, x_gen, labels=list(selected_classes),
-                                        minority_labels=list(unbalanced_classes))
-            eval_dict.update({'model_name': model_name,
-                              'training_time': gen_rkm.training_time,
-                              'expr_it': int(expr_it + 1)})
+            x_gen = gen_rkm.random_generation(10000, 10)
+            torch.cuda.empty_cache()
+            # evaluate
+            with torch.no_grad():
+                eval_dict = evaluation_expr(resnet18, x_gen, labels=list(selected_classes),
+                                            minority_labels=list(unbalanced_classes))
+                eval_dict.update({'model_name': model_name,
+                                  'training_time': gen_rkm.training_time,
+                                  'expr_it': int(expr_it + 1)})
 
-            print(eval_dict)
-            expr_records.append(eval_dict)
-            gc.collect()
+                print(eval_dict)
+                expr_records.append(eval_dict)
+                gc.collect()
             break  # Break the loop if training and evaluation succeed
         except Exception as e:
             print(f"Error during training iteration {expr_it + 1} for {model_name}: {e}")
@@ -183,17 +187,19 @@ for expr_it in range(num_repeat_expr):
             # train model
             gen_rkm.train(ub_MNIST012, num_epochs, batch_size, 1e-4, './SavedModels/',
                           dataset_name='ubMNIST012', save=False)
-            x_gen = gen_rkm.random_generation(10000, 3)
+            x_gen = gen_rkm.random_generation(10000, 10)
+            torch.cuda.empty_cache()
             # evaluate
-            eval_dict = evaluation_expr(resnet18, x_gen, labels=list(selected_classes),
-                                        minority_labels=list(unbalanced_classes))
-            eval_dict.update({'model_name': model_name,
-                              'training_time': gen_rkm.training_time,
-                              'expr_it': int(expr_it + 1)})
+            with torch.no_grad():
+                eval_dict = evaluation_expr(resnet18, x_gen, labels=list(selected_classes),
+                                            minority_labels=list(unbalanced_classes))
+                eval_dict.update({'model_name': model_name,
+                                  'training_time': gen_rkm.training_time,
+                                  'expr_it': int(expr_it + 1)})
 
-            print(eval_dict)
-            expr_records.append(eval_dict)
-            gc.collect()
+                print(eval_dict)
+                expr_records.append(eval_dict)
+                gc.collect()
             break
         except Exception as e:
             print(f"Error during training iteration {expr_it + 1} for {model_name}: {e}")
@@ -225,17 +231,19 @@ for expr_it in range(num_repeat_expr):
             gen_rkm.train(ub_MNIST012, num_epochs, batch_size, 1e-4, './SavedModels/',
                           dataset_name='ubMNIST012', save=False)
 
-            x_gen = gen_rkm.random_generation(10000, 3)
+            x_gen = gen_rkm.random_generation(10000, 10)
+            torch.cuda.empty_cache()
+            #evaluate
+            with torch.no_grad():
+                eval_dict = evaluation_expr(resnet18, x_gen, labels=list(selected_classes),
+                                            minority_labels=list(unbalanced_classes))
+                eval_dict.update({'model_name': model_name,
+                                  'training_time': gen_rkm.training_time,
+                                  'expr_it': int(expr_it + 1)})
 
-            eval_dict = evaluation_expr(resnet18, x_gen, labels=list(selected_classes),
-                                        minority_labels=list(unbalanced_classes))
-            eval_dict.update({'model_name': model_name,
-                              'training_time': gen_rkm.training_time,
-                              'expr_it': int(expr_it + 1)})
-
-            print(eval_dict)
-            expr_records.append(eval_dict)
-            gc.collect()
+                print(eval_dict)
+                expr_records.append(eval_dict)
+                gc.collect()
             break
         except Exception as e:
             print(f"Error during training iteration {expr_it + 1} for {model_name}: {e}")
@@ -256,7 +264,7 @@ expr_df_grouped = expr_df.groupby('model_name').agg(['mean', 'std'])
 expr_df_grouped.columns = [f"{col[0]}_{col[1]}" for col in expr_df_grouped.columns]
 
 #rounding the results
-for col in ['mode_1', 'mode_2', 'mode_3']:
+for col in ['mode_1', 'mode_2', 'mode_3', 'mode_4', 'mode_5', 'mode_6', 'mode_7', 'mode_8', 'mode_9','mode_10']:
     expr_df_grouped[f"{col}_mean"] = expr_df_grouped[f"{col}_mean"].round(0).astype(int)
     expr_df_grouped[f"{col}_std"] = expr_df_grouped[f"{col}_std"].round(0).astype(int)
 

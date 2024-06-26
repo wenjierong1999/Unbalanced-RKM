@@ -12,13 +12,15 @@ from Data.Data_Factory import *
 from Data.Data_Factory_v2 import *
 import umap
 import pandas as pd
+from tqdm import tqdm
+import sys
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
 
 class Primal_Gen_RKM():
     '''
-    class for Gen-RKM model, but in primal form
+    class for Gen-RKM model, in primal form
     '''
     def __init__(self,
                  FeatureMap_Net : nn.Module,
@@ -26,6 +28,7 @@ class Primal_Gen_RKM():
                  h_dim : int,
                  img_size : list, #img_size : [c,w,h]
                  device):
+        self.training_time = None
         self.s = None
         self.h = None
         self.U = None
@@ -94,6 +97,7 @@ class Primal_Gen_RKM():
               learning_rate, model_save_path,
               dataset_name, save = True):
         #Initialize optimizer
+        start_training_time = time.time()
         params = list(self.FeatureMap_Net.parameters()) + list(self.PreImageMap_Net.parameters())
         optimizer = torch.optim.Adam(params, lr=learning_rate, weight_decay=0)
         for epoch in range(epoch_num):
@@ -117,9 +121,15 @@ class Primal_Gen_RKM():
             end_time = time.time()
             passing_minutes = int((end_time - start_time) // 60)
             passing_seconds = int((end_time - start_time) % 60)
+            # print(
+            #     f"epoch:{epoch + 1}/{epoch_num}, rkm_loss:{avg_loss}, time passing:{passing_minutes}m{passing_seconds}s.",
+            #     flush=True
+            #      )
             print(
                 f"epoch:{epoch + 1}/{epoch_num}, rkm_loss:{avg_loss}, J_t:{J_t.item()}, J_recon:{J_reconerr.item()}, time passing:{passing_minutes}m{passing_seconds}s.")
         U, h, s = self.final_compute(dataloader)
+        end_training_time = time.time()
+        training_time = round(end_training_time - start_training_time, 1)
         # save model
         cur_time = int(time.time())
         model_name = f'PrimalRKM_{dataset_name}_{cur_time}_s{self.h_dim}.pth'
@@ -140,6 +150,7 @@ class Primal_Gen_RKM():
             self.s = s.detach().cpu()
             self.PreImageMap_Net = self.PreImageMap_Net.cpu()
             self.FeatureMap_Net = self.FeatureMap_Net.cpu()
+            self.training_time = training_time
 
     def random_generation(self, n_samples : int,
                           l : int):
@@ -160,23 +171,23 @@ if __name__ == '__main__':
     #######################
     ##experiment on unbalanced 012MNIST data (oversampling)
     #######################
-    b_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([0,1,2,3,4]), unbalanced=True,
-                                               selected_classes=np.asarray([0,1,2,3,4,5,6,7,8,9]), batchsize=300,unbalanced_ratio=0.1)
+    # b_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([2]), unbalanced=True,
+    #                                            selected_classes=np.asarray([0,1,2]), batchsize=300,unbalanced_ratio=0.1)
     # ub_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([5]), unbalanced=True, unbalanced_ratio=0.1,
     #                                            selected_classes=np.asarray([4, 5, 6]), batchsize=300)
 
-    # ub_MNIST012 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes = np.asarray([1,2,3,4,5,6]),
-    #                                  selected_classes= np.asarray([1,2,3,4,5,6,7,8,9,0]), unbalanced_ratio=0.1, batchsize=300)
+    # b_MNIST012 = get_unbalanced_MNIST_dataloader('../Data/Data_Store',unbalanced=True,unbalanced_classes=[0,1,2,3,4],
+    #                                  selected_classes= np.asarray([0,1,2,3,4,5,6,7,8,9]), unbalanced_ratio=0.1, batchsize=328)
 
     #full_MNIST = get_mnist_dataloader(400, '../Data/Data_Store')
     #print(full_MNIST.dataset.data.shape)
-    rkm_params = {'capacity': 32, 'fdim': 300}
-    #
-    img_size = list(next(iter(b_MNIST456))[0].size()[1:])
-    f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size,**rkm_params))
-    pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
-    gen_rkm = Primal_Gen_RKM(f_net, pi_net, 10, img_size, device)
-    gen_rkm.train(b_MNIST456, 150, 1e-4, '../SavedModels/', dataset_name='ubMNIST',save=True)
+    #rkm_params = {'capacity': 32, 'fdim': 300}
+    # #
+    # img_size = list(next(iter(b_MNIST012))[0].size()[1:])
+    # f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size,**rkm_params))
+    # pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
+    # gen_rkm = Primal_Gen_RKM(f_net, pi_net, 10, img_size, device)
+    # gen_rkm.train(b_MNIST012, 150, 1e-4, '../SavedModels/', dataset_name='ubMNIST-demo',save=True)
     # print(gen_rkm.h.shape, gen_rkm.U.shape, gen_rkm.s.shape)
     # x_gen = gen_rkm.random_generation(300, 3)
     # print(x_gen.shape)
@@ -204,4 +215,23 @@ if __name__ == '__main__':
     # rkm = Primal_Gen_RKM(f_net,pi_net,2,[2],device)
     # #print(rkm.FeatureMap_Net)
     # rkm.train(ring2D, 150, 1e-4, '../SavedModels/', dataset_name='baRing2D')
+
+    #######################
+    ##experiment on CIFAR10 data
+    #######################
+
+    rkm_params_cifar10 = {'capacity': 32, 'fdim': 300}
+
+    cifar10 = FastCIFAR10(root='../Data/Data_Store', train=True, download=True, transform=None,
+                         subsample_num=15000)
+    cifar10_dl = DataLoader(cifar10, batch_size=328, shuffle=False)
+    #
+    # img_size = [3,32,32]
+    # f_net = FeatureMap_Net(create_featuremap_genrkm_CIFAR10(img_size,**rkm_params_cifar10))
+    # pi_net = PreImageMap_Net(create_preimage_genrkm_CIFAR10(img_size, **rkm_params_cifar10))
+    # gen_rkm = Primal_Gen_RKM(f_net, pi_net, 50, img_size, device)
+    # gen_rkm.train(cifar10_dl, 400, 1e-4, '../SavedModels/', dataset_name='CIFAR10',save=True)
+
+
+
 

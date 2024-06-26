@@ -12,19 +12,19 @@ Evaluation process
 '''
 
 #parameter setting
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-rkm_params = {
-    'capacity' : 32,
-    'fdim' : 300,
-}
-print(device)
-
-#load classifier
-classifier_Path = '../SavedModels/classifiers/resnet18_mnist_f1716575624_acc994.pth'
-resnet18 = torch.load(classifier_Path, map_location=torch.device('cpu'))
-
-rkm_model = torch.load('../SavedModels/RLSclass_PrimalRKM_ubMNIST_umap_1718815553_s10_b300.pth', map_location=torch.device('cpu'))
-img_size = [1, 28, 28]
+# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# rkm_params = {
+#     'capacity' : 32,
+#     'fdim' : 300,
+# }
+# print(device)
+#
+# #load classifier
+# classifier_Path = '../SavedModels/classifiers/resnet18_mnist_f1716575624_acc994.pth'
+# resnet18 = torch.load(classifier_Path, map_location=torch.device('cpu'))
+#
+# rkm_model = torch.load('../SavedModels/RLSclass_PrimalRKM_ubMNIST_umap_1718815553_s10_b300.pth', map_location=torch.device('cpu'))
+# img_size = [1, 28, 28]
 
 def eval_kl_div(gen_labels, classes = None):
     '''
@@ -61,7 +61,9 @@ def eval_mode_counts(gen_labels, classes : list):
     unique_modes, counts_per_mode = torch.unique(filtered_gen_labels, return_counts=True)
     count_dict = dict(zip(unique_modes.tolist(), counts_per_mode.tolist()))
 
-    return count_dict
+    new_count_dict = {f"mode_{int(k) + 1}": v for k, v in count_dict.items()}
+
+    return new_count_dict
 
 def evaluation_preview(classifier, rkm_model,
                g_num : int, labels : list,
@@ -80,7 +82,7 @@ def evaluation_preview(classifier, rkm_model,
         z = z[torch.randperm(z.size(0)),:] #random permute order of z
         x_gen = pi_model(torch.t(torch.mm(U, torch.t(z))))#generated samples
 
-        #classify generated samples
+    #classify generated samples
     classifier.eval()
     pred_out = classifier(x_gen)
     _, pred = torch.max(pred_out.data, 1) #raw predicted labels, in a torch.tensor form
@@ -99,14 +101,39 @@ def evaluation_preview(classifier, rkm_model,
 
     return counts_dict
 
-def evaluation_expr():
+def evaluation_expr(classifier, x_gen, labels : list,
+                    minority_labels : list, output_valid_gen_percentage = True):
+    '''
+    evaluation process for experiments
+    return a dictionary containing evaluation results
+    '''
+    #classify generated samples
+    classifier.eval()
+    pred_out = classifier(x_gen)
+    _, pred = torch.max(pred_out.data, 1) #raw predicted labels, in a torch.tensor form
 
+    #evaluation
+    #KL divergence between generated labels and balanced labels
+    kl_div = eval_kl_div(pred, classes=labels)
+    #number of samples generated for each mode
+    counts_dict = eval_mode_counts(pred, classes=labels)
+    #percentage of valid generated samples
+    if output_valid_gen_percentage:
+        valid_gen_percentage = eval_valid_gen_percentage(pred, classes=labels)
+        counts_dict.update(
+            {'kl_div': kl_div,
+             'valid_gen_percentage': valid_gen_percentage}
+        )
+    else:
+        counts_dict.update(
+            {'kl_div': kl_div}
+        )
 
+    return counts_dict
 
-    pass
+if __name__ == '__main__':
 
+    #test code
+    dict = evaluation_preview(resnet18, rkm_model, 10000, [0,1,2], [2], 3)
 
-#test code
-dict = evaluation_preview(resnet18, rkm_model, 10000, [0,1,2], [2], 3)
-
-print(dict)
+    print(dict)
