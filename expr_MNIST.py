@@ -87,10 +87,11 @@ for expr_it in range(num_repeat_expr):
     while True:
         try:
         #load data
-            ub_MNIST012 = get_random_unbalanced_MNIST_dataset('./Data/Data_Store', unbalanced_classes=unbalanced_classes,
+            ub_MNIST012 = get_unbalanced_MNIST_dataset('./Data/Data_Store', unbalanced_classes=unbalanced_classes,
                                                               unbalanced=True,
                                                               selected_classes=selected_classes,
-                                                              unbalanced_ratio=unbalanced_ratio[0])
+                                                              unbalanced_ratio=unbalanced_ratio[0],
+                                                       random=True)
             ub_MNIST012_dl = DataLoader(ub_MNIST012, batch_size=batch_size, shuffle=False)
             #create model
             f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size, **rkm_params))
@@ -130,10 +131,11 @@ for expr_it in range(num_repeat_expr):
     while True:
         try:
             #load data
-            ub_MNIST012 = get_random_unbalanced_MNIST_dataset('./Data/Data_Store', unbalanced_classes=unbalanced_classes,
+            ub_MNIST012 = get_unbalanced_MNIST_dataset('./Data/Data_Store', unbalanced_classes=unbalanced_classes,
                                                               unbalanced=True,
                                                               selected_classes=selected_classes,
-                                                              unbalanced_ratio=unbalanced_ratio[0])
+                                                              unbalanced_ratio=unbalanced_ratio[0],
+                                                       random=True)
             #create model
             f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size, **rkm_params))
             pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
@@ -175,10 +177,11 @@ for expr_it in range(num_repeat_expr):
     while True:
         try:
             # load data
-            ub_MNIST012 = get_random_unbalanced_MNIST_dataset('./Data/Data_Store', unbalanced_classes=unbalanced_classes,
+            ub_MNIST012 = get_unbalanced_MNIST_dataset('./Data/Data_Store', unbalanced_classes=unbalanced_classes,
                                                               unbalanced=True,
                                                               selected_classes=selected_classes,
-                                                              unbalanced_ratio=unbalanced_ratio[0])
+                                                              unbalanced_ratio=unbalanced_ratio[0],
+                                                       random=True)
             # create model
             f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size, **rkm_params))
             pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
@@ -218,10 +221,11 @@ for expr_it in range(num_repeat_expr):
     while True:
         try:
             #load data
-            ub_MNIST012 = get_random_unbalanced_MNIST_dataset('./Data/Data_Store', unbalanced_classes=unbalanced_classes,
+            ub_MNIST012 = get_unbalanced_MNIST_dataset('./Data/Data_Store', unbalanced_classes=unbalanced_classes,
                                                               unbalanced=True,
                                                               selected_classes=selected_classes,
-                                                              unbalanced_ratio=unbalanced_ratio[0])
+                                                              unbalanced_ratio=unbalanced_ratio[0],
+                                                       random=True)
             #create model
             f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size, **rkm_params))
             pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))

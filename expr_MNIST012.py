@@ -56,7 +56,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
 
 #experiment setting
-num_repeat_expr = 10  #number of repeat experiments
+num_repeat_expr = 5  #number of repeat experiments
 expr_records = []  #record of expr results
 rkm_params = {'capacity': 32, 'fdim': 300}
 unbalanced_classes = np.asarray([2])  #minority classes is digit 2

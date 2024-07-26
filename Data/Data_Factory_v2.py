@@ -3,15 +3,44 @@ import torchvision.datasets
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Dataset, Subset, WeightedRandomSampler
 import torch.distributions as D
+import torch.nn.functional as F
 import numpy as np
+from torchvision.utils import make_grid
 from tqdm import tqdm
 import seaborn as sns
 import matplotlib.pyplot as plt
 from collections import Counter
+from torchvision.transforms import functional as TF
 
 '''
 revised version of Data_Factory.py
 '''
+
+FashionMNIST_labels_mapping = {
+    0: "T-shirt",
+    1: "Trouser",
+    2: "Pullover",
+    3: "Dress",
+    4: "Coat",
+    5: "Sandal",
+    6: "Shirt",
+    7: "Sneaker",
+    8: "Bag",
+    9: "Ankle boot"
+}
+
+CIFAR10_labels_mapping = {
+    0: "Airplane",
+    1: "Automobile",
+    2: "Bird",
+    3: "Cat",
+    4: "Deer",
+    5: "Dog",
+    6: "Frog",
+    7: "Horse",
+    8: "Ship",
+    9: "Truck"
+}
 
 
 ###################
@@ -23,46 +52,148 @@ class FastMNIST(datasets.MNIST):
     Classic MNIST dataset with optional subsampling
     taken from Gen-RKM demo
     '''
-    def __init__(self, subsample_num = None, *args, **kwargs):
+
+    def __init__(self, subsample_num=None, selected_classes=None,
+                 one_hot=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         if subsample_num is not None:
             self.data = self.data[:subsample_num]
             self.targets = self.targets[:subsample_num]
 
-        self.data = self.data.unsqueeze(1).div(255) #ToTensor
-        self.target = self.targets
+        if selected_classes is not None:
+            mask = torch.zeros_like(self.targets, dtype=torch.bool)
+            for cls in selected_classes:
+                mask |= (self.targets == cls)
+            self.data = self.data[mask]
+            self.targets = self.targets[mask]
+
+        self.data = self.data.unsqueeze(1).div(255)  #ToTensor
+        if one_hot:
+            self.targets = F.one_hot(self.targets, num_classes=10).float()
+            self.target = self.targets
+        else:
+            self.target = self.targets
+
     def __getitem__(self, index):
         img, target = self.data[index], self.targets[index]
         return img, target
+
+
+class FastFashionMNIST(datasets.FashionMNIST):
+    '''
+    Classic FashionMNIST dataset with optional subsampling
+    '''
+
+    def __init__(self, subsample_num=None, one_hot=False, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Subsample if needed
+        if subsample_num is not None:
+            self.data = self.data[:subsample_num]
+            self.targets = self.targets[:subsample_num]
+
+        # Convert to tensor
+        self.data = torch.tensor(self.data, dtype=torch.float32).unsqueeze(1).div(255)
+        #self.targets = torch.tensor(self.targets, dtype=torch.int32)
+
+        if one_hot:
+            self.targets = F.one_hot(self.targets, num_classes=10).float()
+            self.target = self.targets
+        else:
+            self.target = self.targets
+
+    def __getitem__(self, index):
+        img, target = self.data[index], self.targets[index]
+        return img, target
+
 
 class FastCIFAR10(datasets.CIFAR10):
     '''
     Classic CIFAR10 dataset with optional subsampling
     '''
-    def __init__(self, subsample_num = None, *args, **kwargs):
+
+    def __init__(self, subsample_num=None, selected_classes=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        # Convert to tensor
+        self.data = torch.tensor(self.data, dtype=torch.float32).permute(0, 3, 1, 2).div(255)
+        self.targets = torch.tensor(self.targets, dtype=torch.int32)
+
+        # Subsample if needed
         if subsample_num is not None:
             self.data = self.data[:subsample_num]
             self.targets = self.targets[:subsample_num]
 
-        self.data = torch.tensor(self.data, dtype=torch.float32).permute(0, 3, 1, 2).div(255)
-        self.targets = torch.tensor(self.targets, dtype=torch.int32)
+        if selected_classes is not None:
+            mask = torch.zeros_like(self.targets, dtype=torch.bool)
+            for cls in selected_classes:
+                mask |= (self.targets == cls)
+            self.data = self.data[mask]
+            self.targets = self.targets[mask]
+
     def __getitem__(self, index):
         img, target = self.data[index], self.targets[index]
         return img, target
 
+
+class FastEMNIST(datasets.EMNIST):
+    '''
+    Classic EMNIST dataset with optional subsampling
+    '''
+
+    def __init__(self, subsample_num=None, selected_classes=None, one_hot=False, rotation = False, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Convert to tensor
+        self.data = torch.tensor(self.data, dtype=torch.float32).unsqueeze(1).div(255)
+        self.targets = torch.tensor(self.targets, dtype=torch.int64)
+        self.transform = transforms.Compose([
+            lambda img: TF.rotate(img, -90),
+            lambda img: TF.hflip(img),
+        ])
+        # Adjust target labels from [1, 2, ..., 26] to [0, 1, ..., 25]
+        self.targets -= 1
+
+        if rotation:
+            self.data = self.transform(self.data)
+
+        # Subsample if needed
+        if subsample_num is not None:
+            self.data = self.data[:subsample_num]
+            self.targets = self.targets[:subsample_num]
+
+        if selected_classes is not None:
+            mask = torch.zeros_like(self.targets, dtype=torch.bool)
+            for cls in selected_classes:
+                mask |= (self.targets == cls)
+            self.data = self.data[mask]
+            self.targets = self.targets[mask]
+
+        if one_hot:
+            self.targets = F.one_hot(self.targets, num_classes=10).float()
+            self.target = self.targets
+        else:
+            self.target = self.targets
+
+    def __getitem__(self, index):
+        img, target = self.data[index], self.targets[index]
+
+        return img, target
 
 
 class Repacked(Dataset):
     '''
     Repack np.array back to dataset
     '''
-    def __init__(self, X : np.array, Y : np.array):
+
+    def __init__(self, X: np.array, Y: np.array, one_hot=False, num_classes=None):
         super().__init__()
         self.data = torch.tensor(X, dtype=torch.float32)
-        self.target = torch.tensor(Y, dtype=torch.int32)
+        if one_hot:
+            self.target = F.one_hot(torch.tensor(Y, dtype=torch.long), num_classes=num_classes).float()
+        else:
+            self.target = torch.tensor(Y, dtype=torch.int32)
 
     def __len__(self):
         return len(self.target)
@@ -72,17 +203,19 @@ class Repacked(Dataset):
         return x, label
 
 
-
 '''
 Unbalanced MNIST dataset by manually introducing minority modes
 '''
+
+
 def get_unbalanced_MNIST_dataset(data_root, unbalanced_classes, unbalanced_ratio=0.1,
-                                 selected_classes=np.arange(10), unbalanced=True):
+                                 selected_classes=np.arange(10), unbalanced=True, one_hot=False,
+                                 random=False):
     '''
     Create unbalanced MNIST dataset (deterministic)
     '''
     # Load original data
-    train_data = FastMNIST(root=data_root, train=True, download=True, transform=None)
+    train_data = FastMNIST(root=data_root, train=True, download=True)
     X = np.asarray(train_data.data)
     Y = np.asarray(train_data.targets)
 
@@ -92,11 +225,11 @@ def get_unbalanced_MNIST_dataset(data_root, unbalanced_classes, unbalanced_ratio
         mask = ~np.isin(Y, remove_classes)
         X, Y = X[mask], Y[mask]
 
-    # Apply unbalanced ratio
     if unbalanced:
         for cls in unbalanced_classes:
             cls_indices = np.where(Y == cls)[0]
-            np.random.shuffle(cls_indices)
+            if random:
+                np.random.shuffle(cls_indices)
             drop_count = int(len(cls_indices) * (1 - unbalanced_ratio))
             drop_indices = cls_indices[:drop_count]
             X = np.delete(X, drop_indices, axis=0)
@@ -105,95 +238,59 @@ def get_unbalanced_MNIST_dataset(data_root, unbalanced_classes, unbalanced_ratio
     print('Value counts for each mode:')
     print(Counter(Y))
 
-    unbalanced_MNIST = Repacked(X, Y)
-
-    # Uncomment to visualize the created data
-    # figure = plt.figure(figsize=(14, 14))
-    # cols, rows = 8, 8
-    # for i in range(1, cols * rows + 1):
-    #     img, label = unbalanced_MNIST[i]
-    #     figure.add_subplot(rows, cols, i)
-    #     plt.title(str(label.item()))
-    #     plt.axis("off")
-    #     plt.imshow(img.squeeze(), cmap="gray")
-    # plt.show()
-
-    return unbalanced_MNIST
-
-def get_random_unbalanced_MNIST_dataset(data_root, unbalanced_classes, unbalanced_ratio=0.1,
-                                        selected_classes=np.arange(10), unbalanced=True):
-    '''
-    Create randomly unbalanced MNIST dataset (randomized)
-    '''
-    # Load original data
-    train_data = FastMNIST(root=data_root, train=True, download=True, transform=None)
-    X = np.asarray(train_data.data)
-    Y = np.asarray(train_data.targets)
-
-    # Drop unselected classes
-    remove_classes = np.setdiff1d(np.arange(10), selected_classes)
-    if remove_classes.size > 0:
-        mask = ~np.isin(Y, remove_classes)
-        X, Y = X[mask], Y[mask]
-
-    # Apply unbalanced ratio in a randomized manner
-    if unbalanced:
-        for cls in unbalanced_classes:
-            cls_indices = np.where(Y == cls)[0]
-            np.random.shuffle(cls_indices)  # Randomly shuffle indices
-            drop_count = int(len(cls_indices) * (1 - unbalanced_ratio))
-            drop_indices = cls_indices[:drop_count]
-            X = np.delete(X, drop_indices, axis=0)
-            Y = np.delete(Y, drop_indices)
-
-    print('Value counts for each mode:')
-    print(Counter(Y))
-
-    unbalanced_MNIST = Repacked(X, Y)
-
-    # Uncomment to visualize the created data
-    # figure = plt.figure(figsize=(14, 14))
-    # cols, rows = 8, 8
-    # for i in range(1, cols * rows + 1):
-    #     img, label = unbalanced_MNIST.__getitem__(i)
-    #     figure.add_subplot(rows, cols, i)
-    #     plt.axis("off")
-    #     plt.imshow(img.squeeze(), cmap="gray")
-    # plt.show()
+    unbalanced_MNIST = Repacked(X, Y, one_hot=one_hot, num_classes=len(selected_classes))
 
     return unbalanced_MNIST
 
 
-# TODO: Unbalanced CIFAR10
-'''
-The first modified dataset, named unbalanced 06-CIFAR10,
-consists of only the classes 0 and 6 or images of airplanes and frogs respectively.
-The class 0 is depleted with a factor 0.05. The second dataset, named unbalanced 016-CIFAR10,
-consists of the classes 0,1 and 6. Compared to the previous dataset, we add images from
-the class automobile. Now, the class 6 consisting of frogs is depleted with a factor 0.05.
-'''
-def get_unbalanced_CIFAR10_dataset(data_root, unbalanced_classes : np.array,
-                                   unbalanced_ratio = 0.1, selected_classes = np.arange(10), unbalanced = True,):
+def get_unbalanced_EMNIST_dataset(data_root, unbalanced_classes, unbalanced_ratio=0.1,
+                                    selected_classes=np.arange(10), unbalanced=True, one_hot=False,
+                                    random=False):
+        '''
+        Create unbalanced EMNIST dataset (deterministic)
+        '''
+        # Load original data
+        train_data = FastEMNIST(root=data_root, split='letters', train=True, download=True, rotation=True,
+                                selected_classes=selected_classes)
+        X = np.asarray(train_data.data)
+        Y = np.asarray(train_data.targets)
 
-    train_data = FastCIFAR10(root=data_root, train=True, download=True, transform=None)
+        # Drop unselected classes
+        remove_classes = np.setdiff1d(np.arange(10), selected_classes)
+        if remove_classes.size > 0:
+            mask = ~np.isin(Y, remove_classes)
+            X, Y = X[mask], Y[mask]
 
+        if unbalanced:
+            for cls in unbalanced_classes:
+                cls_indices = np.where(Y == cls)[0]
+                if random:
+                    np.random.shuffle(cls_indices)
+                drop_count = int(len(cls_indices) * (1 - unbalanced_ratio))
+                drop_indices = cls_indices[:drop_count]
+                X = np.delete(X, drop_indices, axis=0)
+                Y = np.delete(Y, drop_indices)
 
+        print('Value counts for each mode:')
+        print(Counter(Y))
 
-    return None
+        unbalanced_EMNIST = Repacked(X, Y, one_hot=one_hot, num_classes=len(selected_classes))
+
+        return unbalanced_EMNIST
 
 
 ###################
 #--- Dataloader class ---#
 ###################
 
-def get_oversampling_dataloader(dataset : Dataset, batch_size : int,
+def get_oversampling_dataloader(dataset: Dataset, batch_size: int,
                                 ) -> DataLoader:
     target = dataset.target
     class_sample_count = np.unique(target, return_counts=True)[1]
     inverse_class_freq_weights = 1. / class_sample_count
     weights = inverse_class_freq_weights[target]
 
-    sampler = WeightedRandomSampler(weights, len(weights),replacement = True)
+    sampler = WeightedRandomSampler(weights, len(weights), replacement=True)
     dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
 
     #class_counts = {label: 0 for label in np.unique(target, return_counts=False)}
@@ -205,7 +302,7 @@ def get_oversampling_dataloader(dataset : Dataset, batch_size : int,
     return dataloader
 
 
-def get_full_oversampled_dataset(oversampling_dataloader : DataLoader):
+def get_full_oversampled_dataset(oversampling_dataloader: DataLoader):
     '''
     given dataloader with oversampling sampler, return augmented full dataset 
     '''
@@ -220,11 +317,56 @@ def get_full_oversampled_dataset(oversampling_dataloader : DataLoader):
     return full_dataset
 
 
-
 if __name__ == '__main__':
     #test codes
-    ub_MNIST012 = get_random_unbalanced_MNIST_dataset('Data_Store', unbalanced_classes = np.asarray([2]), unbalanced=True,
-                                     selected_classes= np.asarray([0,1,2]), unbalanced_ratio=0.1)
+    # ub_MNIST012 = get_unbalanced_MNIST_dataset('Data_Store', unbalanced_classes = np.asarray([2]), unbalanced=True,
+    #                                  selected_classes= np.asarray([0,1,2]), unbalanced_ratio=0.1)
+    # print(ub_MNIST012.target[:100])
+    # print(ub_MNIST012.target.shape)
+
+
+    eMNIST = FastEMNIST(root='Data_Store', train=True, download=True, split='letters', rotation=True)
+    print(eMNIST.data.shape)
+
+    images = eMNIST.data[:200]
+    labels = eMNIST.targets[:200]
+    print(torch.min(eMNIST.targets))
+
+    ub_eMNIST = get_unbalanced_EMNIST_dataset('Data_Store', unbalanced_classes=np.asarray([16,17,18]), unbalanced=True,
+                                                selected_classes=np.asarray([1,2,3,16,17,18,19]))
+
+    # Group images by their labels and sort by label
+    # label_to_images = {}
+    # for img, label in zip(images, labels):
+    #     label = label.item()
+    #     if label not in label_to_images:
+    #         label_to_images[label] = []
+    #     label_to_images[label].append(img)
+    #
+    # # Sort the labels
+    # sorted_labels = sorted(label_to_images.keys())
+
+    # Visualize each label with corresponding images
+    # fig, axes = plt.subplots(len(sorted_labels), 10, figsize=(15, len(sorted_labels) * 1.5))
+    #
+    # for idx, label in enumerate(sorted_labels):
+    #     imgs = label_to_images[label]
+    #     for jdx, img in enumerate(imgs[:10]):  # Display up to 10 images per label
+    #         ax = axes[idx, jdx]
+    #         ax.imshow(img.squeeze(), cmap='gray')
+    #         ax.axis('off')
+    #     axes[idx, 0].set_ylabel(f'Label {label}', rotation=0, labelpad=40, va='center')
+    #
+    # plt.suptitle('Images Corresponding to Each Label (Sorted)')
+    # plt.tight_layout()
+    # plt.show()
+    #visualize some parts of eMNIST
+    # for i in range(10):
+    #     plt.imshow(eMNIST.data[i].squeeze())
+    #     plt.title(eMNIST.targets[i])
+    #     plt.show()
+    #
+
     #
     # dl = get_oversampling_dataloader(ub_MNIST012, batch_size=64)
     # aug_data = get_full_oversampled_dataset(dl)
@@ -237,3 +379,7 @@ if __name__ == '__main__':
     # print(train_data.__getitem__(0))
     # dl = DataLoader(train_data, batch_size=64, shuffle=False)
     #print(next(iter(dl))[0][0])
+
+    # fashion = FastFashionMNIST(root='Data_Store', train=True, download=True)
+    # print(fashion.data.shape)
+    # print(fashion.targets[:10])

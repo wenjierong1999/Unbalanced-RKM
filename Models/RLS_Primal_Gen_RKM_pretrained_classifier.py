@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 import time
 import torchvision
+from tensorboard import summary
 from torch.utils.data import DataLoader, Dataset, TensorDataset, BatchSampler
 import torchvision.models as models
 from utils.NNstructures import *
@@ -12,6 +13,7 @@ from Data.Data_Factory_v2 import *
 import umap
 from sklearn.mixture import GaussianMixture
 from tqdm import tqdm
+
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
@@ -54,6 +56,7 @@ class RLS_Primal_Gen_RKM_class:
             "vgg19": models.vgg19,
             "mobilenet_v2": models.mobilenet_v2,
             "densenet121": models.densenet121,
+            "alexnet": models.alexnet
         }
 
         if classifier in self.classifier_dict:
@@ -76,14 +79,19 @@ class RLS_Primal_Gen_RKM_class:
         if self.classifier_name == "inception_v3":
             x = F.interpolate(x, size=(299, 299), mode='bilinear', align_corners=False)
 
-        if self.classifier_name in ['resnet18', 'resnet34', 'resnet50', 'vgg16', 'vgg19']:
+        if self.classifier_name in ['resnet18', 'resnet34', 'resnet50', 'vgg16', 'vgg19','alexnet', 'densenet121']:
             x = F.interpolate(x, size=(224, 224), mode='bilinear', align_corners=False)
         # print(x.shape)
         # print('memory size of x', x.element_size() * x.nelement() / 1024 / 1024)
         def hook(module, input, output):
             features.append(output)
 
-        layer = list(self.classifier.children())[-2]
+        if self.classifier_name == 'vgg16':
+            layer = self.classifier.classifier[4]
+        elif self.classifier_name == 'alexnet':
+            layer = self.classifier.classifier[1]
+        else:
+            layer = list(self.classifier.children())[-2]
         handle = layer.register_forward_hook(hook)
         with torch.no_grad():
             self.classifier.eval()
@@ -96,6 +104,7 @@ class RLS_Primal_Gen_RKM_class:
         '''
         function to compute ridge leverage score
         '''
+        print(f'Phi_X shape: {Phi_X.shape}')
         with torch.no_grad():
             if guassian_sketching:
                 S = torch.randn(Phi_X.size(1), s_d) / torch.sqrt(torch.tensor(s_d, dtype=torch.float))
@@ -122,17 +131,9 @@ class RLS_Primal_Gen_RKM_class:
         '''
         Phi_X = self.FeatureMap_Net(X)
         assert not torch.isnan(Phi_X).any(), "Phi_X contains NaN after FeatureMap_Net"
-        assert not torch.isinf(Phi_X).any(), "Phi_X contains Inf after FeatureMap_Net"
         N = Phi_X.size(0)
         cC = torch.cov(torch.t(Phi_X), correction=0) * N
-        assert not torch.isnan(cC).any(), "cC contains NaN"
-        assert not torch.isinf(cC).any(), "cC contains Inf"
-
         U, s, _ = torch.svd(cC, some=False)
-        assert not torch.isnan(U).any(), "U contains NaN"
-        assert not torch.isinf(U).any(), "U contains Inf"
-        assert not torch.isnan(s).any(), "s contains NaN"
-        assert not torch.isinf(s).any(), "s contains Inf"
         return Phi_X, U[:, :self.h_dim] * torch.sqrt(s[:self.h_dim]), torch.diag(s[:self.h_dim])
 
     def RKM_loss(self, X, c_acc=100):
@@ -285,17 +286,29 @@ if __name__ == '__main__':
 
 
     rkm_params = {'capacity': 32, 'fdim': 300}
+#
+    # ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([2]),
+    #                                            selected_classes=np.asarray([0,1,2]), unbalanced_ratio=0.1)
+    ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([0,1,2,3,4]),
+                                               selected_classes=np.asarray([0,1,2,3,4,5,6,7,8,9]), unbalanced_ratio=0.1)
+#
+#     img_size = list(ub_MNIST012.data[0].size())
+# #print(ub_MNIST012.data[:100].expand(-1, 3, -1, -1).shape)
+#
+# #print(extractor_features(ub_MNIST012.data[:100].to(device)).shape)
+#
+#
+#     f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size, **rkm_params))
+#     pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
+#     gen_rkm = RLS_Primal_Gen_RKM_class(f_net, pi_net, 10, img_size, device, classifier='resnet18', use_umap=True) #resnet18 is preferred umap_d = 25
+#     gen_rkm.train(ub_MNIST012, 150, 328, 1e-4, '../SavedModels/', dataset_name='ubMNIST012_umap_demo')
 
-    ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([2]),
-                                               selected_classes=np.asarray([0,1,2]), unbalanced_ratio=0.1)
-
-    img_size = list(ub_MNIST012.data[0].size())
-#print(ub_MNIST012.data[:100].expand(-1, 3, -1, -1).shape)
-
-#print(extractor_features(ub_MNIST012.data[:100].to(device)).shape)
-
-
+    # ub_emnist = get_unbalanced_EMNIST_dataset('../Data/Data_Store', unbalanced=True, unbalanced_classes=np.asarray(list(range(4,26))),
+    #                                           selected_classes=np.asarray(list(range(26))))
+    img_size = [1,28,28]
     f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size, **rkm_params))
     pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
-    gen_rkm = RLS_Primal_Gen_RKM_class(f_net, pi_net, 10, img_size, device, classifier='resnet18', use_umap=True) #resnet18 is preferred umap_d = 25
-    gen_rkm.train(ub_MNIST012, 150, 328, 1e-4, '../SavedModels/', dataset_name='ubMNIST012_umap_demo')
+    gen_rkm = RLS_Primal_Gen_RKM_class(f_net, pi_net, 10, img_size, device, classifier='alexnet', use_umap=True) #resnet18 is preferred umap_d = 25
+    gen_rkm.train(ub_MNIST012, 150, 328, 1e-4, '../SavedModels/', dataset_name='ubeMNIST_umap_demo')
+
+

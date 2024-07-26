@@ -7,12 +7,13 @@ import torchvision.models as models
 import torch.distributions as D
 from torchvision import transforms
 from collections import Counter
+from utils.FID import FID_IS_Calculator
 '''
 Evaluation process
 '''
 
 #parameter setting
-# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # rkm_params = {
 #     'capacity' : 32,
 #     'fdim' : 300,
@@ -20,11 +21,14 @@ Evaluation process
 # print(device)
 #
 # #load classifier
-# classifier_Path = '../SavedModels/classifiers/resnet18_mnist_f1716575624_acc994.pth'
-# resnet18 = torch.load(classifier_Path, map_location=torch.device('cpu'))
+classifier_mnist_Path = '../SavedModels/classifiers/resnet18_mnist_f1716575624_acc994.pth'
+resnet18_mnist = torch.load(classifier_mnist_Path, map_location=torch.device('cpu'))
+# classifier_emnist_Path = '../SavedModels/classifiers/resnet18_emnist_f1721828643_acc939.pth'
+# resnet18_emnist = torch.load(classifier_emnist_Path, map_location=torch.device('cpu'))
+
 #
-# rkm_model = torch.load('../SavedModels/RLSclass_PrimalRKM_ubMNIST_umap_1718815553_s10_b300.pth', map_location=torch.device('cpu'))
-# img_size = [1, 28, 28]
+rkm_model = torch.load('../SavedModels/PrimalRKM_bFullMNIST_demo_1719953509_s10.pth', map_location=torch.device('cpu'))
+img_size = [1, 28, 28]
 
 def eval_kl_div(gen_labels, classes = None):
     '''
@@ -65,9 +69,9 @@ def eval_mode_counts(gen_labels, classes : list):
 
     return new_count_dict
 
-def evaluation_preview(classifier, rkm_model,
-               g_num : int, labels : list,
-               minority_labels : list, l : int,
+
+def evaluation_preview(classifier, rkm_model, real_imgs : torch.tensor,
+               g_num : int, labels : list, l : int,
                rounding_digits = 4):
     #load rkm model
     h = rkm_model['h'].detach().cpu().numpy()
@@ -99,10 +103,25 @@ def evaluation_preview(classifier, rkm_model,
          'valid_gen_percentage': valid_gen_percentage}
     )
 
+    #compute FID
+    fid_calculator = FID_IS_Calculator(device=device)
+    x_gen = x_gen.to(device)
+    real_imgs = real_imgs.to(device)
+    fid_score, inception_score = fid_calculator.calculate_fid_is(real_imgs, x_gen)
+
+    print(fid_score)
+
+    counts_dict.update(
+        {'kl_div': kl_div,
+         'valid_gen_percentage': valid_gen_percentage,
+         'FID': fid_score,
+         'IS': inception_score}
+    )
+
     return counts_dict
 
-def evaluation_expr(classifier, x_gen, labels : list,
-                    minority_labels : list, output_valid_gen_percentage = True):
+def evaluation_expr(classifier, x_gen, labels : list, real_imgs : torch.tensor,
+                     output_valid_gen_percentage = True):
     '''
     evaluation process for experiments
     return a dictionary containing evaluation results
@@ -128,12 +147,61 @@ def evaluation_expr(classifier, x_gen, labels : list,
         counts_dict.update(
             {'kl_div': kl_div}
         )
+    #compute FID
+    fid_calculator = FID_IS_Calculator(device=device)
+    x_gen = x_gen.to(device)
+    real_imgs = real_imgs.to(device)
+    fid_score, inception_score = fid_calculator.calculate_fid_is(real_imgs, x_gen)
+
+    print(fid_score)
+
+    counts_dict.update(
+        {
+         'FID': fid_score,
+         'IS': inception_score}
+    )
+
+    return counts_dict
 
     return counts_dict
 
 if __name__ == '__main__':
 
     #test code
-    dict = evaluation_preview(resnet18, rkm_model, 10000, [0,1,2], [2], 3)
+    bmnist = FastMNIST(root='../Data/Data_Store', train=True, download=True)
+    #bmnist012 = FastMNIST(root='../Data/Data_Store', train=True, download=True, selected_classes=[0,1,2])
+    print(bmnist.data.shape)
+    dict = evaluation_preview(resnet18_mnist , rkm_model, bmnist.data, 10000, list(range(10)), 10)
 
     print(dict)
+
+
+    #load rkm model
+    #rkm_model = torch.load('../SavedModels/PrimalRKM_bFullMNIST_demo_1719953509_s10.pth', map_location=torch.device('cpu'))
+
+
+    # h = rkm_model['h'].detach().cpu().numpy()
+    # U = rkm_model['U'].detach().cpu()
+    # pi_model = rkm_model['PreImageMapNet']
+    #
+    #
+    #
+    # #generate some random samples
+    # with torch.no_grad():
+    #     gmm = GaussianMixture(n_components=10, covariance_type='full').fit(h)
+    #     z = gmm.sample(100)
+    #     z = torch.FloatTensor(z[0])
+    #     z = z[torch.randperm(z.size(0)),:] #random permute order of z
+    #     x_gen = pi_model(torch.t(torch.mm(U, torch.t(z))))#generated samples
+
+    # cifar10 = FastCIFAR10(root='../Data/Data_Store', train=True, download=True, transform=None,
+    #                      selected_classes=[0,6])
+    # x_gen = cifar10.data[:100]
+    #
+    # #x_gen = x_gen.repeat(1, 3, 1, 1)
+    # print(x_gen.shape)
+    #
+    # IS, IS_std = get_inception_score(x_gen, use_torch=True, device = torch.device('cpu'))
+    # print(IS)
+    # print(IS_std)
+
