@@ -21,6 +21,8 @@ class RKM_Trainer:
                  img_size: int,
                  device,
                  sampler: str = None,
+                 umap: bool = False,
+                 final_loader: DataLoader = None,
                  c_acc=100,
                  form='dual'):
         self.loader = loader
@@ -30,6 +32,8 @@ class RKM_Trainer:
         self.img_size = img_size
         self.device = device
         self.sampler = sampler
+        self.umap = umap
+        self.final_loader = final_loader
         self.c_acc = c_acc
         self.form = form
 
@@ -79,10 +83,13 @@ class RKM_Trainer:
 
     def final_compute(self):
         with torch.inference_mode():
-            if self.sampler:
-                X = augment_dataset(self.loader).data.to(self.device)
+            if self.final_loader:
+                X = augment_dataset(self.final_loader).data.to(self.device)
             else:
-                X = self.loader.dataset.data.to(self.device)
+                if self.sampler:
+                    X = augment_dataset(self.loader).data.to(self.device)
+                else:
+                    X = self.loader.dataset.data.to(self.device)
 
             phiX = self.FT_Map(X).to('cpu')
             if self.form == 'dual':
@@ -136,9 +143,9 @@ class RKM_Trainer:
         finish = datetime.now()
         print(f"Training finished in {finish-begin}, loss: {train_loss}")
         if self.sampler:
-            model_name = f'GenRKM_{self.form}_fd{self.FT_Map.output_dim}_{self.sampler}_bs{self.loader.batch_size}_{finish.strftime("%Y-%m-%d %H:%M")}.pth'
+            model_name = f'GenRKM_{self.form}_fd{self.FT_Map.output_dim}_{self.sampler}_umap{self.umap}_fl{True if self.final_loader else False}_bs{self.loader.batch_size}_{finish.strftime("%Y-%m-%d %H:%M")}.pth'
         else:
-            model_name = f'GenRKM_{self.form}_fd{self.FT_Map.output_dim}_bs{self.loader.batch_size}_{finish.strftime("%Y-%m-%d %H:%M")}.pth'
+            model_name = f'GenRKM_{self.form}_fd{self.FT_Map.output_dim}_fl{True if self.final_loader else False}_bs{self.loader.batch_size}_{finish.strftime("%Y-%m-%d %H:%M")}.pth'
         model_save_path = model_path / model_name
         torch.save(
             {

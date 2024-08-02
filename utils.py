@@ -6,6 +6,7 @@ from torchvision.transforms import ToTensor, Compose
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 import numpy as np
 from umap import UMAP
+from sklearn.ensemble import IsolationForest
 
 
 class FastMNIST(datasets.MNIST
@@ -114,6 +115,39 @@ def get_loader(target_classes: list = list(np.arange(10)),
                             num_workers=num_workers,
                             shuffle=shuffle,
                             sampler=rlssampler)
+
+    elif sampler == 'iforest':
+        shuffle = False
+        iforest_weights = get_iforest_scores(filtered_dataset,
+                                             umap=umap,
+                                             classifier=pretrained_classifier,
+                                             umap_d=umap_d)
+        iforestsampler = WeightedRandomSampler(
+            iforest_weights,
+            num_samples=len(iforest_weights),
+            replacement=True)
+
+        loader = DataLoader(filtered_dataset,
+                            batch_size=batch_size,
+                            num_workers=num_workers,
+                            shuffle=shuffle,
+                            sampler=iforestsampler)
+
+    elif sampler == 'virtual':
+        shuffle = False
+        virtual_classes = get_virtual_classes(filtered_dataset,
+                                              classifier=pretrained_classifier)
+        target_counts = np.bincount(virtual_classes.numpy())
+        virtual_weights = 1.0 / target_counts[virtual_classes]
+        virtualsampler = WeightedRandomSampler(
+            virtual_weights,
+            num_samples=len(virtual_weights),
+            replacement=True)
+        loader = DataLoader(filtered_dataset,
+                            batch_size=batch_size,
+                            num_workers=num_workers,
+                            shuffle=shuffle,
+                            sampler=virtualsampler)
 
     else:
         loader = DataLoader(filtered_dataset,
@@ -244,7 +278,8 @@ def augment_dataset(loader):
 def get_2nd_last_layer(X: torch.Tensor, classifier: str) -> torch.Tensor:
     X = X.repeat(1, 3, 1, 1) if X.size(1) == 1 else X
     if classifier in classifier_dict:
-        model, default_weights = classifier_dict[classifier]
+        model, default_weights = classifier_dict[classifier],
+        model = model.to(device)
         data_transforms = default_weights.transforms()
         X = data_transforms(X)
         outputs = []
@@ -253,7 +288,7 @@ def get_2nd_last_layer(X: torch.Tensor, classifier: str) -> torch.Tensor:
             f"Invalid classifier. Choose from {classifier_dict.keys()}")
 
     def hook(module, input, output):
-        outputs.append(output)
+        outputs.append(output.to('cpu'))
 
     model.eval()
     with torch.inference_mode():
@@ -282,10 +317,12 @@ def get_rls_weights(dataset: Dataset,
                     gamma: float = 1e-4,
                     classifier: str = None,
                     umap=False,
-                    umap_d: int = 25) -> torch.Tensor:
+                    umap_d: int = 25,
+                    device=device) -> torch.Tensor:
     rls_phi_X = []
-    rls_loader = DataLoader(dataset, batch_size=64, shuffle=False)
+    rls_loader = DataLoader(dataset, batch_size=256, shuffle=False)
     for X, _ in rls_loader:
+        X = X.to(device)
         phi_X = get_2nd_last_layer(X, classifier=classifier)
         rls_phi_X.append(phi_X)
 
@@ -303,3 +340,60 @@ def get_rls_weights(dataset: Dataset,
     rls_weights = rls / rls.sum()
 
     return rls_weights
+
+
+def get_iforest_scores(dataset: Dataset,
+                       classifier: str = None,
+                       n_estimators: int = 100,
+                       contamination: float = 0.1,
+                       umap=False,
+                       umap_d: int = 25) -> torch.Tensor:
+    iforest = IsolationForest(n_estimators=n_estimators,
+                              contamination=contamination)
+    rls_phi_X = []
+    rls_loader = DataLoader(dataset, batch_size=64, shuffle=False)
+    for X, _ in rls_loader:
+        phi_X = get_2nd_last_layer(X, classifier=classifier)
+        rls_phi_X.append(phi_X)
+
+    phi_X_rls = torch.cat(rls_phi_X, dim=0)
+
+    phi_X_rls = torch.FloatTensor(
+        UMAP(n_components=umap_d).fit_transform(
+            phi_X_rls.cpu().numpy())) if umap else phi_X_rls
+
+    iforest.fit(phi_X_rls.cpu().numpy())
+    iforest_scores = iforest.decision_function(phi_X_rls.cpu().numpy())
+    min_score = min(iforest_scores)
+    max_score = max(iforest_scores)
+    iforest_weights = (max_score - iforest_scores) / (max_score - min_score)
+    iforest_weights = iforest_weights / iforest_weights.sum()
+
+    return iforest_weights
+
+
+def get_virtual_classes(dataset: Dataset,
+                        classifier: str = None,
+                        device=device) -> torch.Tensor:
+    virtual_classes = []
+    virtual_loader = DataLoader(dataset, batch_size=256, shuffle=False)
+    if classifier in classifier_dict:
+        model, default_weights = classifier_dict[classifier]
+        data_transforms = default_weights.transforms()
+    else:
+        raise ValueError(
+            f"Invalid classifier. Choose from {classifier_dict.keys()}")
+
+    model.eval()
+    with torch.inference_mode():
+        for X, _ in virtual_loader:
+            X = X.repeat(1, 3, 1, 1) if X.size(1) == 1 else X
+            X = data_transforms(X)
+            X = X.to(device)
+            output = model(X)
+            virtual_label = torch.argmax(output,
+                                         dim=1).squeeze().to('cpu').tolist()
+            print(virtual_label)
+            virtual_classes.extend(virtual_label)
+        print(len(virtual_classes))
+        return torch.tensor(virtual_classes)
