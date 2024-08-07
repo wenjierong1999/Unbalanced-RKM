@@ -4,15 +4,14 @@ import torch.nn.functional as F
 import numpy as np
 import time
 import torchvision
-from tensorboard import summary
 from torch.utils.data import DataLoader, Dataset, TensorDataset, BatchSampler
 import torchvision.models as models
 from utils.NNstructures import *
-from Data.Data_Factory import *
 from Data.Data_Factory_v2 import *
 import umap
 from sklearn.mixture import GaussianMixture
 from tqdm import tqdm
+#from facenet_pytorch import MTCNN, InceptionResnetV1
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -81,8 +80,6 @@ class RLS_Primal_Gen_RKM_class:
 
         if self.classifier_name in ['resnet18', 'resnet34', 'resnet50', 'vgg16', 'vgg19','alexnet', 'densenet121']:
             x = F.interpolate(x, size=(224, 224), mode='bilinear', align_corners=False)
-        # print(x.shape)
-        # print('memory size of x', x.element_size() * x.nelement() / 1024 / 1024)
         def hook(module, input, output):
             features.append(output)
 
@@ -104,7 +101,7 @@ class RLS_Primal_Gen_RKM_class:
         '''
         function to compute ridge leverage score
         '''
-        print(f'Phi_X shape: {Phi_X.shape}')
+        #print(f'Phi_X shape: {Phi_X.shape}')
         with torch.no_grad():
             if guassian_sketching:
                 S = torch.randn(Phi_X.size(1), s_d) / torch.sqrt(torch.tensor(s_d, dtype=torch.float))
@@ -148,7 +145,7 @@ class RLS_Primal_Gen_RKM_class:
         ipVec_dim = int(np.prod(self.img_size))
 
         # reconstruction loss
-        J_reconerr = recon_loss(x_tilde.view(-1, ipVec_dim), X.view(-1, ipVec_dim))
+        J_reconerr = recon_loss(x_tilde.reshape(-1, ipVec_dim), X.reshape(-1, ipVec_dim))
 
         # KPCA loss
         f1 = torch.trace(torch.mm(torch.mm(Phi_X, U), torch.t(h)))
@@ -170,7 +167,7 @@ class RLS_Primal_Gen_RKM_class:
         with torch.no_grad():
             N = dataset.data.size(0)
             resampled_idx = torch.multinomial(rls, N, replacement=True)
-            resampled_x = dataset.data[resampled_idx, :, :, :].to(self.device)
+            resampled_x = dataset.data.to(self.device)[resampled_idx, :, :, :]
             Phi_X, U, s = self.primal_KPCA(resampled_x)
             h = torch.div(torch.mm(Phi_X, U), torch.norm(torch.mm(Phi_X, U), dim=0))  #renormalize h
         return U, h, s
@@ -213,18 +210,10 @@ class RLS_Primal_Gen_RKM_class:
                 else:
                     sampled_batch_idx = torch.multinomial(rls, batch_size, replacement=True)
                 sampled_epoch_idx.append(sampled_batch_idx)
-                imgs = dataset.data[sampled_batch_idx, :, :, :].to(self.device)
-                loss, J_t, J_reconerr = self.RKM_loss(imgs, 100)
+                imgs = dataset.data.to(self.device)[sampled_batch_idx, :, :, :]
                 optimizer.zero_grad()
+                loss, J_t, J_reconerr = self.RKM_loss(imgs, 100)
                 loss.backward()
-                # Gradient checking
-                # for name, param in self.FeatureMap_Net.named_parameters():
-                #     if param.grad is not None:
-                #         if torch.isnan(param.grad).any():
-                #             print(f"Gradient for {name} contains NaN: {param.grad}")
-                #             for name, param in self.FeatureMap_Net.named_parameters():
-                #                 print(name, param.grad)
-                #             raise ValueError(f"Gradient for {name} contains NaN")
 
                 torch.nn.utils.clip_grad_norm_(params, max_norm=2.0)
 
@@ -235,7 +224,7 @@ class RLS_Primal_Gen_RKM_class:
             passing_seconds = int((end_time - start_time) % 60)
 
             # value counts on sampled labels in each epoch
-            sampled_labels = dataset.target[torch.cat(sampled_epoch_idx, dim=0)]
+            sampled_labels = dataset.target.to(self.device)[torch.cat(sampled_epoch_idx, dim=0)]
             unique_elements, counts = torch.unique(sampled_labels, return_counts=True)
             element_count_dict = dict(zip(unique_elements.tolist(), counts.tolist()))
             print(f'sampled labels counts: {element_count_dict}')
@@ -289,8 +278,8 @@ if __name__ == '__main__':
 #
     # ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([2]),
     #                                            selected_classes=np.asarray([0,1,2]), unbalanced_ratio=0.1)
-    ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([0,1,2,3,4]),
-                                               selected_classes=np.asarray([0,1,2,3,4,5,6,7,8,9]), unbalanced_ratio=0.1)
+    # ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([2]),
+    #                                            selected_classes=np.asarray([0,1,2]), unbalanced_ratio=0.1)
 #
 #     img_size = list(ub_MNIST012.data[0].size())
 # #print(ub_MNIST012.data[:100].expand(-1, 3, -1, -1).shape)
@@ -303,12 +292,18 @@ if __name__ == '__main__':
 #     gen_rkm = RLS_Primal_Gen_RKM_class(f_net, pi_net, 10, img_size, device, classifier='resnet18', use_umap=True) #resnet18 is preferred umap_d = 25
 #     gen_rkm.train(ub_MNIST012, 150, 328, 1e-4, '../SavedModels/', dataset_name='ubMNIST012_umap_demo')
 
-    # ub_emnist = get_unbalanced_EMNIST_dataset('../Data/Data_Store', unbalanced=True, unbalanced_classes=np.asarray(list(range(4,26))),
-    #                                           selected_classes=np.asarray(list(range(26))))
+
+    # ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([2]), unbalanced=True,
+    #                                               selected_classes=np.asarray([0,1,2]),unbalanced_ratio=0.1)
+
+    #ub_MNIST = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=[0, 1, 2, 3, 4], unbalanced=True)
+
+
+    ub_fashion = get_unbalanced_FashionMNIST_dataset('../Data/Data_Store', unbalanced_classes=[0,1,2,3,4,6,8], unbalanced=True,
+                                                     unbalanced_ratio=0.1)
     img_size = [1,28,28]
-    f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size, **rkm_params))
-    pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
-    gen_rkm = RLS_Primal_Gen_RKM_class(f_net, pi_net, 10, img_size, device, classifier='alexnet', use_umap=True) #resnet18 is preferred umap_d = 25
-    gen_rkm.train(ub_MNIST012, 150, 328, 1e-4, '../SavedModels/', dataset_name='ubeMNIST_umap_demo')
-
-
+    rkm_params_fashion = {'capacity': 32, 'fdim': 300}
+    f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size, **rkm_params_fashion))
+    pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params_fashion))
+    gen_rkm = RLS_Primal_Gen_RKM_class(f_net, pi_net, 10, img_size, device, classifier='alexnet', use_umap=True)
+    gen_rkm.train(ub_fashion, 150, 328, 1e-4, '../SavedModels/RLS-RKM-demo/', dataset_name='ubfashion', save=True)

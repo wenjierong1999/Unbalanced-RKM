@@ -46,7 +46,7 @@ class FID_IS_Calculator:
         activations = np.concatenate(activations, axis=0)
         probs = np.concatenate(probs, axis=0)
         #print(activations.shape)
-        print(probs.shape)
+        #print(probs.shape)
         return activations, probs
 
     def _preprocess(self, x):

@@ -21,14 +21,14 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # print(device)
 #
 # #load classifier
-classifier_mnist_Path = '../SavedModels/classifiers/resnet18_mnist_f1716575624_acc994.pth'
-resnet18_mnist = torch.load(classifier_mnist_Path, map_location=torch.device('cpu'))
-# classifier_emnist_Path = '../SavedModels/classifiers/resnet18_emnist_f1721828643_acc939.pth'
-# resnet18_emnist = torch.load(classifier_emnist_Path, map_location=torch.device('cpu'))
-
+# classifier_mnist_Path = '../SavedModels/classifiers/resnet18_mnist_f1716575624_acc994.pth'
+# resnet18_mnist = torch.load(classifier_mnist_Path, map_location=torch.device('cpu'))
+# # classifier_emnist_Path = '../SavedModels/classifiers/resnet18_emnist_f1721828643_acc939.pth'
+# # resnet18_emnist = torch.load(classifier_emnist_Path, map_location=torch.device('cpu'))
 #
-rkm_model = torch.load('../SavedModels/PrimalRKM_bFullMNIST_demo_1719953509_s10.pth', map_location=torch.device('cpu'))
-img_size = [1, 28, 28]
+# #
+# rkm_model = torch.load('../SavedModels/PrimalRKM_ubMNIST012_demo_100epochs_1722082873_s10.pth', map_location=torch.device('cpu'))
+# img_size = [1, 28, 28]
 
 def eval_kl_div(gen_labels, classes = None):
     '''
@@ -57,7 +57,7 @@ def eval_valid_gen_percentage(gen_labels, classes : list):
 
     return (valid_count / total_count) * 100
 
-def eval_mode_counts(gen_labels, classes : list):
+def eval_mode_counts(gen_labels, classes : list, minority_class = None):
     '''
     count the number of samples generated for each mode
     '''
@@ -66,6 +66,13 @@ def eval_mode_counts(gen_labels, classes : list):
     count_dict = dict(zip(unique_modes.tolist(), counts_per_mode.tolist()))
 
     new_count_dict = {f"mode_{int(k) + 1}": v for k, v in count_dict.items()}
+
+    # Calculate the mean count for the minority class
+    if minority_class is not None:
+        minority_class_tensor = torch.tensor(minority_class if isinstance(minority_class, list) else [minority_class])
+        minority_counts = counts_per_mode[torch.isin(unique_modes, minority_class_tensor)]
+        mean_minority_count = minority_counts.float().mean().item()
+        new_count_dict['mean_minority'] = mean_minority_count
 
     return new_count_dict
 
@@ -86,10 +93,16 @@ def evaluation_preview(classifier, rkm_model, real_imgs : torch.tensor,
         z = z[torch.randperm(z.size(0)),:] #random permute order of z
         x_gen = pi_model(torch.t(torch.mm(U, torch.t(z))))#generated samples
 
-    #classify generated samples
-    classifier.eval()
-    pred_out = classifier(x_gen)
-    _, pred = torch.max(pred_out.data, 1) #raw predicted labels, in a torch.tensor form
+    #classify generated samples in mini-baches
+    classifier.to(device).eval()
+    pred = []
+    for i in tqdm(range(0, x_gen.size(0), 100)):
+        x_gen = x_gen.to(device)
+        batch = x_gen[i:i + 100]
+        pred_out = classifier(batch)
+        _, batch_pred = torch.max(pred_out.data, 1)
+        pred.append(batch_pred)
+    pred = torch.cat(pred).cpu()
 
     #evaluation
     #percentage of valid generated samples
@@ -120,7 +133,7 @@ def evaluation_preview(classifier, rkm_model, real_imgs : torch.tensor,
 
     return counts_dict
 
-def evaluation_expr(classifier, x_gen, labels : list, real_imgs : torch.tensor,
+def evaluation_expr(classifier, x_gen, labels : list, real_imgs : torch.tensor, minority_class = None,
                      output_valid_gen_percentage = True):
     '''
     evaluation process for experiments
@@ -135,7 +148,10 @@ def evaluation_expr(classifier, x_gen, labels : list, real_imgs : torch.tensor,
     #KL divergence between generated labels and balanced labels
     kl_div = eval_kl_div(pred, classes=labels)
     #number of samples generated for each mode
-    counts_dict = eval_mode_counts(pred, classes=labels)
+    if minority_class is not None:
+        counts_dict = eval_mode_counts(pred, classes=labels, minority_class=minority_class)
+    else:
+        counts_dict = eval_mode_counts(pred, classes=labels)
     #percentage of valid generated samples
     if output_valid_gen_percentage:
         valid_gen_percentage = eval_valid_gen_percentage(pred, classes=labels)
@@ -163,17 +179,28 @@ def evaluation_expr(classifier, x_gen, labels : list, real_imgs : torch.tensor,
 
     return counts_dict
 
-    return counts_dict
-
 if __name__ == '__main__':
-
-    #test code
-    bmnist = FastMNIST(root='../Data/Data_Store', train=True, download=True)
-    #bmnist012 = FastMNIST(root='../Data/Data_Store', train=True, download=True, selected_classes=[0,1,2])
-    print(bmnist.data.shape)
-    dict = evaluation_preview(resnet18_mnist , rkm_model, bmnist.data, 10000, list(range(10)), 10)
-
-    print(dict)
+    # #load classifier
+    classifier_mnist_Path = '../SavedModels/classifiers/resnet18_mnist_f1716575624_acc994.pth'
+    resnet18_mnist = torch.load(classifier_mnist_Path, map_location=torch.device('cpu'))
+    # # classifier_emnist_Path = '../SavedModels/classifiers/resnet18_emnist_f1721828643_acc939.pth'
+    # # resnet18_emnist = torch.load(classifier_emnist_Path, map_location=torch.device('cpu'))
+    # classifier_stl10_path = '../SavedModels/classifiers/resnet34_addnoise_06STL10_f1722263584_acc994.pth'
+    # resnet34_stl10 = torch.load(classifier_stl10_path, map_location=torch.device('cpu'))
+    # #
+    # # #
+    # rkm_model = torch.load('../SavedModels/STL10-demo/DualRKM_ubSTL10_06_1722284831_s40.pth', map_location=torch.device('cpu'))
+    # img_size = [3, 96, 96]
+    #
+    # #test code
+    # stl10_06 = FastSTL10(root='../Data/Data_Store', split='train', download=True, selected_classes=[0,6])
+    # stl10_dl = DataLoader(stl10_06, batch_size= 100, shuffle=False)
+    # #bmnist012 = FastMNIST(root='../Data/Data_Store', train=True, download=True, selected_classes=[0,1,2])
+    # print(stl10_06.data.shape)
+    # dict = evaluation_preview(resnet34_stl10 , rkm_model, stl10_06.data, 10000, [0,1], 100,
+    #                           )
+    #
+    # print(dict)
 
 
     #load rkm model

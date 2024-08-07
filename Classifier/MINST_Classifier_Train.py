@@ -17,7 +17,7 @@ print(device)
 epoch_num = 50
 #use resnet18 as pretrained model
 resnet18 = models.resnet18(pretrained = True).to(device)
-resnet18.fc = nn.Linear(resnet18.fc.in_features, 26).to(device)
+resnet18.fc = nn.Linear(resnet18.fc.in_features, 10).to(device)
 resnet18.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False).to(device)
 #print(resnet18.conv1)
 
@@ -28,10 +28,15 @@ resnet18.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3,
 # data_test = FastMNIST(root='../Data/Data_Store', train=False, transform=all_transforms)
 # dataloader_test = DataLoader(data_test, batch_size = 200, shuffle=True)
 
-data_train = FastEMNIST(root='../Data/Data_Store', train=True,split='letters', rotation=True)
-dataloader_train = DataLoader(data_train, batch_size = 200, shuffle=True)
-data_test = FastEMNIST(root='../Data/Data_Store', train=False,split='letters', rotation=True)
-dataloader_test = DataLoader(data_test, batch_size = 200, shuffle=True)
+# data_train = FastEMNIST(root='../Data/Data_Store', train=True,split='letters', rotation=True)
+# dataloader_train = DataLoader(data_train, batch_size = 200, shuffle=True)
+# data_test = FastEMNIST(root='../Data/Data_Store', train=False,split='letters', rotation=True)
+# dataloader_test = DataLoader(data_test, batch_size = 200, shuffle=True)
+
+data_train = FastFashionMNIST(root='../Data/Data_Store', train=True, download=True)
+dataloader_train = DataLoader(data_train, batch_size = 128, shuffle=True)
+data_test = FastFashionMNIST(root='../Data/Data_Store', train=False, download=True)
+dataloader_test = DataLoader(data_test, batch_size = 128, shuffle=True)
 
 
 loss = nn.CrossEntropyLoss().to(device)
@@ -87,4 +92,4 @@ with torch.no_grad():
     print(cla_report)
 
 cur_time = int(time.time())
-torch.save(resnet18, f'../SavedModels/classifiers/resnet18_emnist_f{cur_time}_acc{int(acc * 1000)}.pth')
+torch.save(resnet18, f'../SavedModels/classifiers/resnet18_Fashionmnist_f{cur_time}_acc{int(acc * 1000)}.pth')

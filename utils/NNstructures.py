@@ -7,6 +7,7 @@ from torchsummary import summary
 Store NN structures used for different models
 '''
 
+
 class FeatureMap_Net(nn.Module):
     '''
     Initialize NN class for feature map
@@ -32,11 +33,13 @@ class PreImageMap_Net(nn.Module):
     def forward(self, x):
         return self.model(x)
 
+
 class VAE_encoder(nn.Module):
     def __init__(self, img_size: list, capacity: int, fdim: int):
         super(VAE_encoder, self).__init__()
         self.input_channel = img_size[0]
         self.c = capacity
+        self.fdim = fdim
         self.covlayers = nn.Sequential(
             nn.Conv2d(in_channels=self.input_channel, out_channels=self.c, kernel_size=4, stride=2, padding=1),
             nn.LeakyReLU(negative_slope=0.2),
@@ -44,8 +47,8 @@ class VAE_encoder(nn.Module):
             nn.LeakyReLU(negative_slope=0.2),
             nn.Flatten(),
         )
-        self.FC_mean  = nn.Linear(self.c * 2 * 7 * 7, fdim)
-        self.FC_var   = nn.Linear (self.c * 2 * 7 * 7, fdim)
+        self.FC_mean = nn.Linear(self.c * 2 * 7 * 7, fdim)
+        self.FC_var = nn.Linear(self.c * 2 * 7 * 7, fdim)
 
     def forward(self, x):
         h = self.covlayers(x)
@@ -54,25 +57,28 @@ class VAE_encoder(nn.Module):
 
         return mean, log_var
 
+
 class VAE_decoder(nn.Module):
 
     def __init__(self, img_size: list, capacity: int, fdim: int):
         super(VAE_decoder, self).__init__()
         self.output_channel = img_size[0]
         self.c = capacity
+        self.fdim = fdim
         self.covlayers = nn.Sequential(
-        nn.Linear(fdim, self.c * 2 * 7 * 7),
-        nn.LeakyReLU(negative_slope=0.2),
-        nn.Unflatten(1, (self.c * 2, 7, 7)),
-        nn.ConvTranspose2d(in_channels=self.c * 2, out_channels=self.c, kernel_size=4, stride=2, padding=1),
-        nn.LeakyReLU(negative_slope=0.2),
-        nn.ConvTranspose2d(in_channels=self.c, out_channels=self.output_channel, kernel_size=4, stride=2, padding=1),
-        nn.Sigmoid(),
-    )
+            nn.Linear(fdim, self.c * 2 * 7 * 7),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Unflatten(1, (self.c * 2, 7, 7)),
+            nn.ConvTranspose2d(in_channels=self.c * 2, out_channels=self.c, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.ConvTranspose2d(in_channels=self.c, out_channels=self.output_channel, kernel_size=4, stride=2,
+                               padding=1),
+            nn.Sigmoid(),
+        )
 
     def forward(self, x):
-
         return self.covlayers(x)
+
 
 class GAN_generator(nn.Module):
     def __init__(self, img_size: list, capacity: int, fdim: int):
@@ -80,17 +86,19 @@ class GAN_generator(nn.Module):
         self.output_channel = img_size[0]
         self.c = capacity
         self.covlayers = nn.Sequential(
-        nn.Linear(fdim, self.c * 2 * 7 * 7),
-        nn.LeakyReLU(negative_slope=0.2),
-        nn.Unflatten(1, (self.c * 2, 7, 7)),
-        nn.ConvTranspose2d(in_channels=self.c * 2, out_channels=self.c, kernel_size=4, stride=2, padding=1),
-        nn.LeakyReLU(negative_slope=0.2),
-        nn.ConvTranspose2d(in_channels=self.c, out_channels=self.output_channel, kernel_size=4, stride=2, padding=1),
-        nn.Tanh(),
-    )
+            nn.Linear(fdim, self.c * 2 * 7 * 7),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Unflatten(1, (self.c * 2, 7, 7)),
+            nn.ConvTranspose2d(in_channels=self.c * 2, out_channels=self.c, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.ConvTranspose2d(in_channels=self.c, out_channels=self.output_channel, kernel_size=4, stride=2,
+                               padding=1),
+            nn.Tanh(),
+        )
 
     def forward(self, x):
         return self.covlayers(x)
+
 
 class GAN_discriminator(nn.Module):
 
@@ -99,19 +107,18 @@ class GAN_discriminator(nn.Module):
         self.input_channel = img_size[0]
         self.c = capacity
         self.covlayers = nn.Sequential(
-        nn.Conv2d(in_channels= self.input_channel, out_channels= self.c, kernel_size=4, stride=2, padding=1),
-        nn.LeakyReLU(negative_slope=0.2),
-        nn.Conv2d(in_channels= self.c, out_channels= self.c * 2, kernel_size=4, stride=2, padding=1),
-        nn.LeakyReLU(negative_slope=0.2),
-        nn.Flatten(),
-        nn.Linear(self.c * 2 * 7 * 7, fdim)
-    )
+            nn.Conv2d(in_channels=self.input_channel, out_channels=self.c, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Conv2d(in_channels=self.c, out_channels=self.c * 2, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Flatten(),
+            nn.Linear(self.c * 2 * 7 * 7, fdim)
+        )
         self.finalFC = nn.Linear(fdim, 1)
 
     def forward(self, x):
         h = self.covlayers(x)
         return F.sigmoid(self.finalFC(h))
-
 
 
 def create_preimage_genrkm_MNIST(img_size: list, capacity: int, fdim: int):
@@ -128,7 +135,7 @@ def create_preimage_genrkm_MNIST(img_size: list, capacity: int, fdim: int):
     )
 
 
-def create_preimage_genrkm_MNIST_label(fdim = 20, num_classes=10):
+def create_preimage_genrkm_MNIST_label(fdim=20, num_classes=10):
     return nn.Sequential(
         nn.Linear(fdim, 15),
         nn.LeakyReLU(negative_slope=0.2),
@@ -150,7 +157,7 @@ def create_featuremap_genrkm_MNIST(img_size: list, capacity: int, fdim: int):
     )
 
 
-def create_featuremap_genrkm_MNIST_label(fdim = 20, num_classes=10):
+def create_featuremap_genrkm_MNIST_label(fdim=20, num_classes=10):
     return nn.Sequential(
         nn.Linear(num_classes, 15),
         nn.LeakyReLU(negative_slope=0.2),
@@ -205,6 +212,79 @@ def create_preimagemap_genrkm_synthetic2D(fdim: int, input_size=2):
     )
 
 
+def create_featuremap_genrkm_celeba(capacity: int, fdim: int, img_size=[3, 128, 128]):
+    input_channel = img_size[0]
+    c = capacity
+    return nn.Sequential(
+        nn.Conv2d(in_channels=input_channel, out_channels=c, kernel_size=4, stride=2, padding=1),
+        # 3*128*128 -> c*64*64
+        nn.LeakyReLU(negative_slope=0.2),
+        nn.Conv2d(in_channels=c, out_channels=c * 2, kernel_size=4, stride=2, padding=1),  # c*64*64 -> 2c*32*32
+        nn.LeakyReLU(negative_slope=0.2),
+        nn.Conv2d(in_channels=c * 2, out_channels=c * 4, kernel_size=4, stride=2, padding=1),  # 2c*32*32 -> 4c*16*16
+        nn.LeakyReLU(negative_slope=0.2),
+        nn.Conv2d(in_channels=c * 4, out_channels=c * 8, kernel_size=4, stride=2, padding=1),  # 4c*16*16 -> 8c*8*8
+        nn.LeakyReLU(negative_slope=0.2),
+        nn.Flatten(),  # flatten batch of multi-channel feature maps to a batch of feature vectors
+        nn.Linear(c * 8 * 8 * 8, fdim)
+    )
+
+
+def create_preimage_genrkm_celea(capacity: int, fdim: int, img_size=[3, 96, 96]):
+    input_channel = img_size[0]
+    c = capacity
+    return nn.Sequential(
+        nn.Linear(fdim, c * 8 * 8 * 8),
+        nn.LeakyReLU(negative_slope=0.2),
+        nn.Unflatten(1, (c * 8, 8, 8)),
+        nn.ConvTranspose2d(in_channels=c * 8, out_channels=c * 4, kernel_size=4, stride=2, padding=1),
+        # 8c*8*8 -> 4c*16*16
+        nn.LeakyReLU(negative_slope=0.2),
+        nn.ConvTranspose2d(in_channels=c * 4, out_channels=c * 2, kernel_size=4, stride=2, padding=1),
+        # 4c*16*16 -> 2c*32*32
+        nn.LeakyReLU(negative_slope=0.2),
+        nn.ConvTranspose2d(in_channels=c * 2, out_channels=c, kernel_size=4, stride=2, padding=1),
+        # 2c*32*32 -> c*64*64
+        nn.LeakyReLU(negative_slope=0.2),
+        nn.ConvTranspose2d(in_channels=c, out_channels=img_size[0], kernel_size=4, stride=2, padding=1),
+        # c*64*64 -> 3*128*128
+        nn.Sigmoid()
+    )
+
+
+def create_featuremap_genrkm_stl10(capacity: int, fdim: int, img_size=[3, 96, 96]):
+    input_channel = img_size[0]
+    c = capacity
+    return nn.Sequential(
+        nn.Conv2d(in_channels=input_channel, out_channels=c, kernel_size=4, stride=2, padding=1),  # 3*96*96 -> c*48*48
+        nn.LeakyReLU(negative_slope=0.2),
+        nn.Conv2d(in_channels=c, out_channels=c * 2, kernel_size=4, stride=2, padding=1),  # c*48*48 -> 2c*24*24
+        nn.LeakyReLU(negative_slope=0.2),
+        nn.Conv2d(in_channels=c * 2, out_channels=c * 4, kernel_size=4, stride=2, padding=1),  # 2c*24*24 -> 4c*12*12
+        nn.LeakyReLU(negative_slope=0.2),
+        nn.Conv2d(in_channels=c * 4, out_channels=c * 8, kernel_size=4, stride=2, padding=1),  # 4c*12*12 -> 8c*6*6
+        nn.LeakyReLU(negative_slope=0.2),
+        nn.Flatten(),  # flatten batch of multi-channel feature maps to a batch of feature vectors
+        nn.Linear(c * 8 * 6 * 6, fdim)  # 8c*6*6 -> fdim
+    )
+
+def create_preimagemap_genrkm_stl10(capacity: int, fdim: int, img_size=[3, 96, 96]):
+    input_channel = img_size[0]
+    c = capacity
+    return nn.Sequential(
+        nn.Linear(fdim, c * 8 * 6 * 6),  # fdim -> 8c*6*6
+        nn.Unflatten(1, (c * 8, 6, 6)),  # 8c*6*6 -> 8c*6*6
+        nn.ConvTranspose2d(in_channels=c * 8, out_channels=c * 4, kernel_size=4, stride=2, padding=1),  # 8c*6*6 -> 4c*12*12
+        nn.LeakyReLU(negative_slope=0.2),
+        nn.ConvTranspose2d(in_channels=c * 4, out_channels=c * 2, kernel_size=4, stride=2, padding=1),  # 4c*12*12 -> 2c*24*24
+        nn.LeakyReLU(negative_slope=0.2),
+        nn.ConvTranspose2d(in_channels=c * 2, out_channels=c, kernel_size=4, stride=2, padding=1),  # 2c*24*24 -> c*48*48
+        nn.LeakyReLU(negative_slope=0.2),
+        nn.ConvTranspose2d(in_channels=c, out_channels=input_channel, kernel_size=4, stride=2, padding=1),  # c*48*48 -> 3*96*96
+        nn.Tanh()  # Assuming the image values are normalized between -1 and 1
+    )
+
+
 # testdata = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([2]), unbalanced=True,
 #                                                 selected_classes=np.asarray([0,1,2]),unbalanced_ratio=0.1, one_hot=True, sub_num=5000)
 # test_fm = FeatureMap_Net(create_featuremap_genrkm_MNIST_label(num_classes=3))
@@ -243,5 +323,15 @@ def create_preimagemap_genrkm_synthetic2D(fdim: int, input_size=2):
 # print(test_g(x).shape)
 # print(test_d(testmnist.data).shape)
 
+# test_celea = gender_celebA(sub_samplenum=500)
+# test_fp = create_featuremap_genrkm_celeba(32,300)
+# test_pi = create_preimage_genrkm_celea(32,300)
+# #print(test_fp(test_celea.data).shape)
+# fdim = test_fp(test_celea.data)
+# print(test_pi(fdim).shape)
 
-
+# test_stl10 = FastSTL10(root = '../Data/Data_Store', split='train', download=True, subsample_num=100)
+# test_fp = create_featuremap_genrkm_stl10(32,300)
+# test_pi = create_preimagemap_genrkm_stl10(32,300)
+# fdim = test_fp(test_stl10.data)
+# print(test_pi(fdim).shape)

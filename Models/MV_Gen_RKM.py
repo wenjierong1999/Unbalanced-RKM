@@ -134,7 +134,7 @@ class MV_Gen_RKM():
 
     def train(self, dataset : Dataset, epoch_num : int,
               batch_size : int, learning_rate, model_save_path,
-              dataset_name, save = True):
+              dataset_name, save = True, inverse_resampling = False):
         '''
         Training loop
         '''

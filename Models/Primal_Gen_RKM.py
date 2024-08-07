@@ -96,7 +96,7 @@ class Primal_Gen_RKM():
 
     def train(self, dataloader : DataLoader, epoch_num : int,
               learning_rate, model_save_path,
-              dataset_name, save = True):
+              dataset_name, save = True, inverse_resampling = False):
         #Initialize optimizer
         start_training_time = time.time()
         params = list(self.FeatureMap_Net.parameters()) + list(self.PreImageMap_Net.parameters())
@@ -174,31 +174,35 @@ if __name__ == '__main__':
     #######################
     ##experiment on unbalanced 012MNIST data (oversampling)
     #######################
-    # b_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([2]), unbalanced=True,
-    #                                            selected_classes=np.asarray([0,1,2]), batchsize=300,unbalanced_ratio=0.1)
-    # ub_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([5]), unbalanced=True, unbalanced_ratio=0.1,
-    #                                            selected_classes=np.asarray([4, 5, 6]), batchsize=300)
+    # b_MNIST012 = FastMNIST(root='../Data/Data_Store', train=True, download=True, selected_classes=[0,1,2])
+    # b_MNIST012_dl = DataLoader(b_MNIST012, batch_size=328, shuffle=False)
 
-    # MNIST = FastMNIST(root='../Data/Data_Store', train=True, download=True)
-    # MNIST_dl = DataLoader(MNIST, batch_size=328, shuffle=False)
+    # b_MNIST = FastMNIST(root='../Data/Data_Store', train=True, download=True)
+    # b_MNIST_dl = DataLoader(b_MNIST, batch_size=328, shuffle=False)
 
-    #full_MNIST = get_mnist_dataloader(400, '../Data/Data_Store')
-    #print(full_MNIST.dataset.data.shape)
-    # rkm_params = {'capacity': 32, 'fdim': 300}
-    # #
-    # img_size = list(next(iter(MNIST_dl))[0].size()[1:])
-    # f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size,**rkm_params))
-    # pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
-    # gen_rkm = Primal_Gen_RKM(f_net, pi_net, 10, img_size, device)
-    # gen_rkm.train(MNIST_dl, 150, 1e-4, '../SavedModels/', dataset_name='bFullMNIST_demo',save=True)
+    # ub_MNIST = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=[0,1,2,3,4], unbalanced=True)
+    # ub_MNIST_dl = DataLoader(ub_MNIST, batch_size=328, shuffle=False)
+
+    # b_FashionMNIST = FastFashionMNIST(root='../Data/Data_Store', train=True, download=True)
+    # b_FashionMNIST_dl = DataLoader(b_FashionMNIST, batch_size=328, shuffle=False)
+    #
+    ub_FashionMNIST = get_unbalanced_FashionMNIST_dataset('../Data/Data_Store', unbalanced_classes=[0,1,2,3,4,6,8], unbalanced=True)
+    ub_FashionMNIST_dl = DataLoader(ub_FashionMNIST, batch_size=328, shuffle=False)
+
+    # ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([2]), unbalanced=True,
+    #                                               selected_classes=np.asarray([0,1,2]),unbalanced_ratio=0.1)
+    # ub_MNIST012_dl = DataLoader(ub_MNIST012, batch_size=328, shuffle=False)
+    #
+    rkm_params = {'capacity': 32, 'fdim': 300}
+    # # #
+    img_size = [1,28,28]
+    f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size,**rkm_params))
+    pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
+    gen_rkm = Primal_Gen_RKM(f_net, pi_net, 10, img_size, device)
+    gen_rkm.train(ub_FashionMNIST_dl, 150, 1e-4, '../SavedModels/RKM-demo/', dataset_name='ubFashion',save=True)
     # print(gen_rkm.h.shape, gen_rkm.U.shape, gen_rkm.s.shape)
     # x_gen = gen_rkm.random_generation(300, 3)
     # print(x_gen.shape)
-    #gen_rkm.random_generation('../SavedModels/PrimalRKM_bMNIST456_1716546903_s10_b300.pth',10, l=5)
-    #gen_rkm.reconstruction_vis(save_model_path='../SavedModels/PrimalRKM_bMNIST456_1716546903_s10_b300.pth',
-    #                         dataloader=b_MNIST456, per_mode=False)
-    # #
-    # gen_rkm.vis_latentspace_v2('../SavedModels/PrimalRKM_FullubMNIST-ub123456-Demo_1716228024_s2_b300.pth', ub_MNIST012)
 
 
 
@@ -218,38 +222,5 @@ if __name__ == '__main__':
     # rkm = Primal_Gen_RKM(f_net,pi_net,2,[2],device)
     # #print(rkm.FeatureMap_Net)
     # rkm.train(ring2D, 150, 1e-4, '../SavedModels/', dataset_name='baRing2D')
-
-    #######################
-    ##experiment on CIFAR10 data
-    #######################
-
-    # rkm_params_cifar10 = {'capacity': 64, 'fdim': 300}
-    #
-    # cifar10 = FastCIFAR10(root='../Data/Data_Store', train=True, download=True, transform=None,
-    #                      selected_classes= [0,6])
-    # # print(cifar10.data.shape)
-    #
-    # cifar10_dl = DataLoader(cifar10, batch_size=350, shuffle=False)
-    # #
-    # img_size = [3,32,32]
-    # f_net = FeatureMap_Net(create_featuremap_genrkm_CIFAR10(img_size,**rkm_params_cifar10))
-    # pi_net = PreImageMap_Net(create_preimage_genrkm_CIFAR10(img_size, **rkm_params_cifar10))
-    # gen_rkm = Primal_Gen_RKM(f_net, pi_net, 100, img_size, device)
-    # gen_rkm.train(cifar10_dl, 300, 1e-4, '../SavedModels/', dataset_name='CIFAR10-06',save=True)
-
-
-    #######################
-    ##experiment on EMNIST data
-    #######################
-
-    eMNIST = FastEMNIST(root='../Data/Data_Store', train=True, download=True, split='letters', rotation=True)
-    print(eMNIST.data.shape)
-    eMNIST_dl = DataLoader(eMNIST, batch_size=328, shuffle=False)
-    rkm_params = {'capacity': 32, 'fdim': 300}
-    img_size = [1,28,28]
-    f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size,**rkm_params))
-    pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
-    gen_rkm = Primal_Gen_RKM(f_net, pi_net, 15, img_size, device)
-    gen_rkm.train(eMNIST_dl, 150, 1e-4, '../SavedModels/', dataset_name='bEMNIST_demo',save=True)
 
 

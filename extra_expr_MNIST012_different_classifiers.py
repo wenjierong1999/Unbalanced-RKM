@@ -21,13 +21,13 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
 
 #experiment setting
-num_repeat_expr = 2  #number of repeat experiments
+num_repeat_expr = 5  #number of repeat experiments
 expr_records = []  #record of expr results
 rkm_params = {'capacity': 32, 'fdim': 300}
 unbalanced_classes = np.asarray([2])  #minority classes is digit 2
 selected_classes = np.asarray([0, 1, 2])  #selected classes (digits 0 1 2)
 unbalanced_ratio = 0.1 #unbalance ratio
-classifier_list = ['resnet18', 'resnet34', 'inception_v3', 'mobilenet_v2','vgg16', 'alexnet']
+classifier_list = ['resnet18', 'resnet34', 'inception_v3','vgg16', 'alexnet']
 
 #training setting
 batch_size = 328
@@ -46,6 +46,7 @@ resnet18 = resnet18.to(torch.device('cpu'))
 #################
 start_time = time.time()
 file_name = f'extra_expr_different_classifiers_{int(start_time)}'
+#print(os.path.join('./expr_results', file_name))
 os.mkdir(os.path.join('./expr_results', file_name))
 
 bmnist012 = FastMNIST(root='./Data/Data_Store', train=True, download=True, selected_classes=selected_classes)
@@ -61,18 +62,19 @@ for extractor in classifier_list:
                                                                   unbalanced_classes=unbalanced_classes,
                                                                   unbalanced=True,
                                                                   selected_classes=selected_classes,
-                                                                  unbalanced_ratio=unbalanced_ratio[0],
+                                                                  unbalanced_ratio=unbalanced_ratio,
                                                            random=True)
                 ub_MNIST012_dl = DataLoader(ub_MNIST012, batch_size=batch_size, shuffle=False)
                 # create model
                 f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size, **rkm_params))
                 pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
-                gen_rkm = RLS_Primal_Gen_RKM_class(f_net, pi_net, 10, img_size, device, extractor,
+                gen_rkm = RLS_Primal_Gen_RKM_class(f_net, pi_net, 10, img_size, device, classifier = extractor,
                                                    use_umap=True)
                 # train model
                 gen_rkm.train(ub_MNIST012, num_epochs, batch_size, 1e-4, './SavedModels/',
                               dataset_name='ubMNIST012', save=False)
                 x_gen = gen_rkm.random_generation(10000, 3)
+                torch.cuda.empty_cache()
                 # evaluate
                 eval_dict = evaluation_expr(resnet18, x_gen, labels=list(selected_classes),
                                             real_imgs=bmnist012.data)
@@ -83,11 +85,13 @@ for extractor in classifier_list:
                 print(eval_dict)
                 expr_records.append(eval_dict)
                 gc.collect()
+                torch.cuda.empty_cache()
                 break
             except Exception as e:
                 print(f"Error during training iteration {expr_it + 1} for {model_name}: {e}")
                 print("Retrying...")
                 gc.collect()
+                torch.cuda.empty_cache()
 
 
 end_time = time.time()

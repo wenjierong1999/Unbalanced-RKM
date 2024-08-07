@@ -157,14 +157,14 @@ if __name__ == '__main__':
     rkm_params_cifar10 = {'capacity': 64, 'fdim': 500}
 
     cifar10 = FastCIFAR10(root='../Data/Data_Store', train=True, download=True, transform=None,
-                         selected_classes= [0,6])
-    cifar10_dl = DataLoader(cifar10, batch_size= 300, shuffle=False)
-
+                         subsample_num=10000,selected_classes=[0,9])
+    cifar10_dl = DataLoader(cifar10, batch_size= 150, shuffle=False)
+    #
     img_size = [3,32,32]
     f_net = FeatureMap_Net(create_featuremap_genrkm_CIFAR10(img_size,**rkm_params_cifar10))
     pi_net = PreImageMap_Net(create_preimage_genrkm_CIFAR10(img_size, **rkm_params_cifar10))
-    gen_rkm = Dual_Gen_RKM(f_net, pi_net,  200, img_size, device)
-    gen_rkm.train(cifar10_dl, 300, 1e-4, '../SavedModels/', dataset_name='Dual_subCIFAR10',save=True)
+    gen_rkm = Dual_Gen_RKM(f_net, pi_net,  100, img_size, device)
+    gen_rkm.train(cifar10_dl, 500, 1e-4, '../SavedModels/CIFAR10-demo/', dataset_name='CIFAR10',save=True)
 # b_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([3,4,5]), unbalanced=False,
 #                                            selected_classes=np.asarray([3,4,5]), batchsize=200)
 # rkm_params = {'capacity': 32, 'fdim': 300}
@@ -173,3 +173,14 @@ if __name__ == '__main__':
 # pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
 # gen_rkm = Dual_Gen_RKM(f_net, pi_net, 10, img_size, device)
 # gen_rkm.train(b_MNIST456, 100, 1e-4, '../SavedModels/', dataset_name='bMNIST345',save=True)
+#     rkm_params_stl10 = {'capacity': 32, 'fdim': 500}
+#     #stl10_06 = FastSTL10(root='../Data/Data_Store', split='train', download=True, selected_classes=[0,6])
+#     ub_stl_10 = get_unbalanced_STL10_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([0]), unbalanced=True,
+#                                                 selected_classes=np.asarray([0, 6]), unbalanced_ratio=0.1)
+#     ubstl10_dl = DataLoader(ub_stl_10, batch_size= 100, shuffle=False)
+#     img_size = [3,96,96]
+#     f_net = FeatureMap_Net(create_featuremap_genrkm_stl10(**rkm_params_stl10))
+#     pi_net = PreImageMap_Net(create_preimagemap_genrkm_stl10(**rkm_params_stl10))
+#     gen_rkm = Dual_Gen_RKM(f_net, pi_net,  40, img_size, device)
+#     gen_rkm.train(ubstl10_dl, 1000, 1e-4, '../SavedModels/STL10-demo/', dataset_name='ubSTL10_06',save=True)
+

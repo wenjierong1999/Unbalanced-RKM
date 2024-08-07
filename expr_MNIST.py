@@ -65,7 +65,7 @@ unbalanced_ratio = [0.1]  #unbalance ratio
 
 #training setting
 batch_size = 328
-num_epochs = 100
+num_epochs = 150
 fdim = 300
 img_size = [1, 28, 28]
 

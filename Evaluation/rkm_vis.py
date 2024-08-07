@@ -10,7 +10,7 @@ from utils.ConditionalGMM.condGMM import CondGMM
 import umap
 
 
-def rkm_random_generation_vis(rkm_model, grid_row_size=5, l=1):
+def rkm_random_generation_vis(rkm_model, grid_row_size=5, l=1, title = None):
     '''
     Visualize random generation of RKM (done on CPU)
     '''
@@ -28,8 +28,9 @@ def rkm_random_generation_vis(rkm_model, grid_row_size=5, l=1):
         it = 0
 
         # Plotting
-        fig, ax = plt.subplots(grid_row_size, grid_row_size, figsize=(10, 10))
-        fig.subplots_adjust(wspace=0, hspace=0)
+        fig, ax = plt.subplots(grid_row_size, grid_row_size, figsize=(6, 6))
+        fig.subplots_adjust(wspace=0.01, hspace=0.01, left=0.01, right=0.99, top=0.99, bottom=0.01)
+        #fig.subplots_adjust(wspace=0, hspace=0)
         for i in range(grid_row_size):
             for j in range(grid_row_size):
                 x_gen = pi_Net(torch.mv(U, z[perm2[it], :]).unsqueeze(0)).cpu().numpy()
@@ -44,7 +45,8 @@ def rkm_random_generation_vis(rkm_model, grid_row_size=5, l=1):
                 ax[i, j].set_xticks([])
                 ax[i, j].set_yticks([])
                 it += 1
-    plt.suptitle('Unbalanced MNIST012')
+    if title is not None:
+        plt.suptitle(title)
     plt.show()
 
 def rkm_conditional_generation(rkm_model, y, grid_row_size=5, l=1):
@@ -146,7 +148,8 @@ def rkm_conditional_generation_sepGMM(rkm_model, y, grid_row_size=5):
     plt.show()
 
 
-def rkm_random_generation_vis_highlight_minorities(rkm_model, classifier, minority_labels, grid_row_size=4, l=1):
+def rkm_random_generation_vis_highlight_minorities(rkm_model, classifier, minority_labels, grid_row_size=4, l=1,
+                                                   save = False, file_name = None):
     '''
     Visualize random generation of RKM (done on cpu)
     classify the generated samples using the classifier and highlight the minority labels using red broader
@@ -166,19 +169,24 @@ def rkm_random_generation_vis_highlight_minorities(rkm_model, classifier, minori
 
         # Plotting
         fig, ax = plt.subplots(grid_row_size, grid_row_size, figsize=(10, 10))
-        fig.subplots_adjust(wspace=0, hspace=0)
+        fig.subplots_adjust(wspace=0.01, hspace=0.01, left=0.01, right=0.99, top=0.99, bottom=0.01)
         for i in range(grid_row_size):
             for j in range(grid_row_size):
                 x_gen = pi_Net(torch.mv(U, z[perm2[it], :]).unsqueeze(0)).numpy()
-                x_gen = x_gen.reshape(1, 28, 28)
 
                 # Use the classifier to predict the label of the generated sample
                 classifier.eval()
-                x_gen_tensor = torch.tensor(x_gen, requires_grad=False, dtype=torch.float32).unsqueeze(0)
+                x_gen_tensor = torch.tensor(x_gen, requires_grad=False, dtype=torch.float32)
                 pred_label = classifier(x_gen_tensor).argmax(dim=1).item()
 
                 # Plot the image
-                ax[i, j].imshow(x_gen[0, :], cmap='Greys_r')
+                # Reshape x_gen based on img_size
+                if x_gen.shape[1] == 3:  # If image has 3 channels (e.g., CIFAR-10)
+                    img = x_gen[0].transpose(1, 2, 0)  # Change shape to (H, W, C)
+                    ax[i, j].imshow(img)
+                else:  # If image has 1 channel (e.g., MNIST)
+                    img = x_gen[0, 0, :, :]  # Shape (H, W)
+                    ax[i, j].imshow(img, cmap='Greys_r')
                 ax[i, j].set_xticks([])
                 ax[i, j].set_yticks([])
 
@@ -189,7 +197,8 @@ def rkm_random_generation_vis_highlight_minorities(rkm_model, classifier, minori
 
                 it += 1
 
-    plt.suptitle('RLS RKM (shared)')
+    if save:
+        plt.savefig('../Outputs/fig/' + file_name + '.png', dpi=800)
     plt.show()
 
 def mvrkm_random_generation_vis(mvrkm_model, grid_row_size=5, l=1):
@@ -429,50 +438,37 @@ def gan_random_generation_vis(gan_model, grid_row_size=10):
 
 if __name__ == '__main__':
 
+    #visualize generated samples
+    rls_rkm_model = torch.load('../SavedModels/RLS-RKM-demo/RLSclass_PrimalRKM_ubmnist_1722892406_s10_b328.pth', map_location=torch.device('cpu'))
+    rkm_model = torch.load('../SavedModels/RKM-demo/PrimalRKM_ubMNIST_1722890057_s10.pth', map_location=torch.device('cpu'))
+    fashion_classifier = torch.load('../SavedModels/classifiers/resnet18_mnist_f1716575624_acc994.pth', map_location=torch.device('cpu'))
 
-    # b_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([5]), unbalanced=True,
-    #                                                selected_classes=np.asarray([4, 5, 6]), batchsize=300)
-    # ub_MNIST456 = get_unbalanced_MNIST_dataloader('../Data/Data_Store', unbalanced_classes=np.asarray([5]), unbalanced=True, unbalanced_ratio=0.1,
-    #                                            selected_classes=np.asarray([4, 5, 6]), batchsize=300)
-    # b_MNIST012 = get_unbalanced_MNIST_dataloader('../Data/Data_Store',unbalanced=True,unbalanced_classes=np.asarray([2]),
-    #                                  selected_classes= np.asarray([0,1,2]), unbalanced_ratio=0.1, batchsize=328)
 
-    # ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([2]), unbalanced=True,
-    #                              selected_classes=np.asarray([0, 1, 2]), unbalanced_ratio=0.1, one_hot=False)
+    rkm_random_generation_vis_highlight_minorities(rls_rkm_model,
+                                                   classifier=fashion_classifier,
+                                                   minority_labels=[0,1,2,3,4],
+                                                   grid_row_size=10, l=10,
+                                                   save = True,
+                                                   file_name='RLS-mnist-gensamples-highlighted-minorities')
 
-    #ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([0,1,2,3,4]), unbalanced=True,
-    #                                           selected_classes=np.asarray([0, 1, 2,3,4,5,6,7,8,9]), unbalanced_ratio=0.1)
-    rkm_model = torch.load('../SavedModels/PrimalRKM_bEMNIST_demo_1721821616_s15.pth', map_location=torch.device('cpu'))
+    rkm_random_generation_vis_highlight_minorities(rkm_model,
+                                                   classifier=fashion_classifier,
+                                                   minority_labels=[0,1,2,3,4],
+                                                   grid_row_size=10, l=10,
+                                                   save = True,
+                                                   file_name='rkm-mnist-gensamples-highlighted-minorities')
 
-    #MNIST = FastMNIST(root='../Data/Data_Store', train=True, download=True, one_hot=False)
-    #rkm_latentspace_vis(rkm_model, b_MNIST012, use_umap=False)
-    # #print(rkm_model['PreImageMapNet']
-    # cifar10 = FastCIFAR10(root='../Data/Data_Store', train=True, download=True, transform=None,
-    #                      selected_classes=[0,6])
-    # cifar10_dl = DataLoader(cifar10, batch_size=64, shuffle=False)
-    eMNIST = FastEMNIST(root='../Data/Data_Store', train=True, download=True, split='letters', rotation=True)
-    #eMNIST_dl = DataLoader(eMNIST, batch_size=64, shuffle=False)
-    #rkm_random_generation_vis(rkm_model, 10, 1)
-    #rkm_reconsturction_vis(rkm_model, eMNIST_dl, 10)
-    #print(ub_MNIST012.target)
+
+
+
     #rkm_conditional_generation(rkm_model, y = ub_MNIST012.target,grid_row_size=10,l=10)
 
     #rkm_conditional_generation_sepGMM(rkm_model, y = ub_MNIST012.target, grid_row_size=10)
 
-    classifier_emnist_Path = '../SavedModels/classifiers/resnet18_emnist_f1721828643_acc939.pth'
-    resnet18_emnist = torch.load(classifier_emnist_Path, map_location=torch.device('cpu'))
-    rkm_random_generation_vis_highlight_minorities(rkm_model,
-                                                   classifier=resnet18_emnist,
-                                                   minority_labels=[0,1,2],
-                                                   grid_row_size=15, l=50)
 
-    #rkm_latentspace_vis(rkm_model, ub_MNIST012.target, use_umap=True)
     #mvrkm_random_generation_vis(mvrkm_model=rkm_model, grid_row_size=5, l=10)
 
     #crkm_random_generation_vis(crkm_model=rkm_model, y=1, grid_row_size=5, l=10, num_classes=10)
 
-    # vae_model = torch.load('../SavedModels/VAE_subMNIST_1721077526.pth', map_location=torch.device('cpu'))
+    # vae_model = torch.load('../SavedModels/VAE-demo/RLSVAE_ubMNIST012_1722698440.pth', map_location=torch.device('cpu'))
     # vae_random_generation_vis(vae_model, grid_row_size=10)
-
-    # gan_model = torch.load('../SavedModels/GAN_subMNIST_1721121284.pth', map_location=torch.device('cpu'))
-    # gan_random_generation_vis(gan_model, grid_row_size=10)
