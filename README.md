@@ -1,4 +1,7 @@
 # Exploring Unbalanced Data in Restricted Kernel Machines
 
-Repo for master's thesis in KU Leuven under the programme of 
+Repo for master's thesis in KU Leuven under the program of 
 statistics and data science.
+
+## Abstract
+Unbalanced data has always been a challenge in the domain of machine learning for a long time. While this issue has been extensively studied in supervised learning, it continues to present difficulties in generative learning, especially in scenarios where data distributions are highly unbalanced. Such imbalances can significantly compromise the efficacy of generative models by introducing biases towards over-represented modes, thereby reducing the diversity of the generated outputs. In this thesis, a comprehensive examination of resampling strategies aimed at addressing data imbalances is conducted within the framework of the Generative Restricted Kernel Machine (Gen-RKM). Specifically, three sampling methods, inverse frequency sampling, rigid leverage score (RLS) sampling, and isolation forest score (Iforest) sampling, are evaluated across various unbalanced datasets. The results indicate that inverse frequency sampling performs well in a supervised setting where data labels are available. Meanwhile, both RLS sampling and Iforest sampling effectively enhance generation diversity in an unsupervised context, with RLS sampling showing superior performance over other sampling strategies when utilized with appropriate feature maps.  

@@ -12,6 +12,11 @@ from Evaluation.Evaluation import *
 import gc
 import os
 
+'''
+Ablation study over the significance of minibatch resampling and final resampling
+'''
+
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
 
