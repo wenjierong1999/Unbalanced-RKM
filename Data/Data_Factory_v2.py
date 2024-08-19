@@ -314,11 +314,13 @@ class Repacked(Dataset):
     Repack np.array back to dataset
     '''
 
-    def __init__(self, X: np.array, Y: np.array, one_hot=False, num_classes=None):
+    def __init__(self, X: np.array, Y: np.array, one_hot=False, num_classes=None, label_float=False):
         super().__init__()
         self.data = torch.tensor(X, dtype=torch.float32)
-        if one_hot:
+        if one_hot: #one-hot need to be in float type for MV-RKM
             self.target = F.one_hot(torch.tensor(Y, dtype=torch.long), num_classes=num_classes).float()
+        elif label_float:
+            self.target = torch.tensor(Y, dtype=torch.float32)
         else:
             self.target = torch.tensor(Y, dtype=torch.int32)
 
@@ -485,26 +487,24 @@ def get_unbalanced_STL10_dataset(data_root, unbalanced_classes, unbalanced_ratio
 #--- Dataloader class ---#
 ###################
 
-def get_oversampling_dataloader(dataset: Dataset, batch_size: int,
+def get_oversampling_dataloader(dataset: Dataset, batch_size: int, one_hot = False
                                 ) -> DataLoader:
-    target = dataset.target
+    target = dataset.target #target should be a one-dimensional tensor/ not in one-hot encoding form
     class_sample_count = np.unique(target, return_counts=True)[1]
     inverse_class_freq_weights = 1. / class_sample_count
     weights = inverse_class_freq_weights[target]
 
     sampler = WeightedRandomSampler(weights, len(weights), replacement=True)
-    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
+    if one_hot:
+        repacked_dataset = Repacked(dataset.data,target,one_hot=True, num_classes = torch.unique(target).shape[0])
+        dataloader = DataLoader(repacked_dataset, batch_size=batch_size, sampler=sampler)
+    else:
+        dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
 
-    class_counts = {label: 0 for label in np.unique(target, return_counts=False)}
-    for data, labels in dataloader:
-        for label in labels:
-            class_counts[label.item()] += 1
-
-    print(class_counts)
     return dataloader
 
 
-def get_full_oversampled_dataset(oversampling_dataloader: DataLoader, one_hot = False, num_classes = None):
+def get_full_oversampled_dataset(oversampling_dataloader: DataLoader, label_float=False):
     '''
     given dataloader with oversampling sampler, return augmented full dataset 
     '''
@@ -514,8 +514,16 @@ def get_full_oversampled_dataset(oversampling_dataloader: DataLoader, one_hot = 
         aug_data.append(data)
         aug_labels.append(labels)
     aug_data = torch.cat(aug_data, dim=0)
-    aug_labels = torch.cat(aug_labels, dim=0)
-    full_dataset = Repacked(aug_data, aug_labels)
+    aug_labels = torch.cat(aug_labels, dim=0) #by now labels tensor is in one-dimensional
+    #print counts per mode
+    # unique_elements, counts = torch.unique(aug_labels, return_counts=True)
+    # element_count_dict = dict(zip(unique_elements.tolist(), counts.tolist()))
+    # print(element_count_dict)
+    # if one_hot:
+    #     full_dataset = Repacked(aug_data,aug_labels, one_hot=one_hot, num_classes=len(unique_elements))
+    # else:
+    #     full_dataset = Repacked(aug_data, aug_labels)
+    full_dataset = Repacked(aug_data, aug_labels, label_float=label_float)
     return full_dataset
 
 
@@ -614,14 +622,28 @@ if __name__ == '__main__':
     # ub_stl_10 = get_unbalanced_STL10_dataset('Data_Store', unbalanced_classes=np.asarray([0]), unbalanced=True,
     #                                             selected_classes=np.asarray([0, 6]), unbalanced_ratio=0.1)
     # print(ub_stl_10.data.shape)
-    unbalanced_classes = [0,1,2,3,4]
+    unbalanced_classes = [0,1,2,3,4,6,8]
     selected_classes = [0,1,2,3,4,5,6,7,8,9]
-    ub_MNIST012 = get_unbalanced_MNIST_dataset('Data_Store',
+    # ub_MNIST012 = get_unbalanced_MNIST_dataset('Data_Store',
+    #                                            unbalanced_classes=unbalanced_classes,
+    #                                            unbalanced=True,
+    #                                            selected_classes=selected_classes,
+    #                                            unbalanced_ratio=0.1,
+    #                                            random=False,
+    #                                            one_hot=False)
+
+    ub_Fashion = get_unbalanced_FashionMNIST_dataset('Data_Store',
                                                unbalanced_classes=unbalanced_classes,
                                                unbalanced=True,
                                                selected_classes=selected_classes,
-                                               unbalanced_ratio=0.05,
-                                               random=True)
-    iw_MNIST_loader = get_oversampling_dataloader(ub_MNIST012, batch_size=328)
+                                               unbalanced_ratio=0.1,
+                                               random=False,
+                                               one_hot=False)
+    print(ub_Fashion.__len__())
+    # iw_MNIST_loader = get_oversampling_dataloader(ub_MNIST012, batch_size=328, one_hot=True)
+    # full_resampled_MNIST = get_full_oversampled_dataset(iw_MNIST_loader)
+    # print(full_resampled_MNIST.data.shape)
+    # print(full_resampled_MNIST.target.shape)
+    # print(full_resampled_MNIST.target[:10])
 
 

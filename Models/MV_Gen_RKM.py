@@ -24,7 +24,8 @@ class MV_Gen_RKM():
                  h_dim: int,
                  img_size: list,  # img_size : [c,w,h]
                  device,
-                 primal = False #the algorithm will run under dual form in default
+                 primal = False, #the algorithm will run under dual form in default
+                 inverse_resampling=False
                  ):
 
         self.training_time = None
@@ -39,6 +40,7 @@ class MV_Gen_RKM():
         self.h_dim = h_dim
         self.img_size = img_size
         self.primal = primal
+        self.inverse_resampling = inverse_resampling
 
 
     def mv_KPCA_dual(self, X, Y, use_cpu=False):
@@ -117,8 +119,14 @@ class MV_Gen_RKM():
                       dataset : Dataset):
 
         with torch.no_grad():
-            x = dataset.data.to(self.device)
-            y = dataset.target.to(self.device)
+            if self.inverse_resampling:
+                dataloader = get_oversampling_dataloader(dataset, batch_size=100, one_hot=True)
+                dataset = get_full_oversampled_dataset(dataloader, label_float=True)
+                x = dataset.data.to(self.device)
+                y = dataset.target.to(self.device)
+            else:
+                x = dataset.data.to(self.device)
+                y = dataset.target.to(self.device)
             if self.primal:
                 Phi_X, Phi_Y, U, s = self.mv_KPCA_Primal(x, y)
                 U_1 = U[:Phi_X.size(1), :]
@@ -130,18 +138,28 @@ class MV_Gen_RKM():
                 U_1 = torch.mm(torch.t(Phi_X), h)
                 U_2 = torch.mm(torch.t(Phi_Y), h)
 
-        return U_1, U_2, h, s
+        if self.inverse_resampling:
+            y = torch.argmax(y, dim=1)
+            print(y.shape)
+            return U_1, U_2, h, s, y
+        else:
+            return U_1, U_2, h, s
 
     def train(self, dataset : Dataset, epoch_num : int,
               batch_size : int, learning_rate, model_save_path,
               dataset_name, save = True, inverse_resampling = False):
         '''
         Training loop
+        if inverse_resampling is True, labels in dataset should be one dimensional not in one-hot form!
+        else labels should be in one-hot form
         '''
         params = list(self.FeatureMap_Net_x.parameters()) + list(self.FeatureMap_Net_y.parameters()) + \
                  list(self.PreImageMap_Net_x.parameters()) + list(self.PreImageMap_Net_y.parameters())
         optimizer = torch.optim.Adam(params, lr=learning_rate, weight_decay=0)
-        dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
+        if self.inverse_resampling:
+            dataloader = get_oversampling_dataloader(dataset, batch_size=batch_size, one_hot=True)
+        else:
+            dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
         N = len(dataloader)
         start_training_time = time.time()
 
@@ -170,26 +188,50 @@ class MV_Gen_RKM():
             passing_seconds = int((end_time - start_time) % 60)
             print(
                 f"epoch:{epoch + 1}/{epoch_num}, rkm_loss:{avg_loss}, time passing:{passing_minutes}m{passing_seconds}s.")
-        U_1, U_2, h, s = self.final_compute(dataset)
+        if self.inverse_resampling:
+            U_1, U_2, h, s, y = self.final_compute(dataset)
+        else:
+            U_1, U_2, h, s = self.final_compute(dataset)
         # save model
         cur_time = int(time.time())
-        model_name = f'MVRKM_{dataset_name}_{cur_time}_s{self.h_dim}.pth'
+        if self.inverse_resampling:
+            model_name = f'IWsampling_MVRKM_{dataset_name}_{cur_time}_s{self.h_dim}.pth'
+        else:
+            model_name = f'MVRKM_{dataset_name}_{cur_time}_s{self.h_dim}.pth'
         if save:
-            torch.save({
-                'FeatureMapNet_x': self.FeatureMap_Net_x,
-                'FeatureMapNet_y': self.FeatureMap_Net_y,
-                'PreImageMapNet_x': self.PreImageMap_Net_x,
-                'PreImageMapNet_y': self.PreImageMap_Net_y,
-                'FeatureMapNet_x_sd': self.FeatureMap_Net_x.state_dict(),
-                'FeatureMapNet_y_sd': self.FeatureMap_Net_y.state_dict(),
-                'PreImageMapNet_x_sd': self.PreImageMap_Net_x.state_dict(),
-                'PreImageMapNet_y_sd': self.PreImageMap_Net_y.state_dict(),
-                'U_1': U_1.detach(),
-                'U_2': U_2.detach(),
-                'h': h.detach(),
-                's': s.detach()
-            },
-                model_save_path + model_name)
+            if self.inverse_resampling:
+                torch.save({
+                    'FeatureMapNet_x': self.FeatureMap_Net_x,
+                    'FeatureMapNet_y': self.FeatureMap_Net_y,
+                    'PreImageMapNet_x': self.PreImageMap_Net_x,
+                    'PreImageMapNet_y': self.PreImageMap_Net_y,
+                    'FeatureMapNet_x_sd': self.FeatureMap_Net_x.state_dict(),
+                    'FeatureMapNet_y_sd': self.FeatureMap_Net_y.state_dict(),
+                    'PreImageMapNet_x_sd': self.PreImageMap_Net_x.state_dict(),
+                    'PreImageMapNet_y_sd': self.PreImageMap_Net_y.state_dict(),
+                    'U_1': U_1.detach(),
+                    'U_2': U_2.detach(),
+                    'h': h.detach(),
+                    's': s.detach(),
+                    'y': y.detach()
+                },
+                    model_save_path + model_name)
+            else:
+                torch.save({
+                    'FeatureMapNet_x': self.FeatureMap_Net_x,
+                    'FeatureMapNet_y': self.FeatureMap_Net_y,
+                    'PreImageMapNet_x': self.PreImageMap_Net_x,
+                    'PreImageMapNet_y': self.PreImageMap_Net_y,
+                    'FeatureMapNet_x_sd': self.FeatureMap_Net_x.state_dict(),
+                    'FeatureMapNet_y_sd': self.FeatureMap_Net_y.state_dict(),
+                    'PreImageMapNet_x_sd': self.PreImageMap_Net_x.state_dict(),
+                    'PreImageMapNet_y_sd': self.PreImageMap_Net_y.state_dict(),
+                    'U_1': U_1.detach(),
+                    'U_2': U_2.detach(),
+                    'h': h.detach(),
+                    's': s.detach()
+                },
+                    model_save_path + model_name)
         else:
             self.U_1 = U_1.detach().cpu()
             self.U_2 = U_2.detach().cpu()
@@ -215,8 +257,29 @@ class MV_Gen_RKM():
 if __name__ == '__main__':
     #sub_MNIST = FastMNIST(root='../Data/Data_Store', train=True, download=True, one_hot=True)
     #fashion = FastFashionMNIST(root='../Data/Data_Store', train=True, download=True, one_hot=True,subsample_num=20000)
-    ub_MNIST = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([0,1,2,3,4]), unbalanced=True,
-                                                selected_classes=np.asarray([0,1,2,3,4,5,6,7,8,9]),unbalanced_ratio=0.1, one_hot=True)
+
+    # ub_MNIST = get_unbalanced_MNIST_dataset('../Data/Data_Store',
+    #                                            unbalanced_classes=[0,1,2,3,4],
+    #                                            unbalanced=True,
+    #                                            selected_classes=[0,1,2,3,4,5,6,7,8,9],
+    #                                            unbalanced_ratio=0.1,
+    #                                            random=False,
+    #                                            one_hot=False)
+    #
+    # b_MNIST = FastMNIST(root='../Data/Data_Store', train=True, download=True, one_hot=True,
+    #                     subsample_num=20000)
+
+    # b_Fashion = FastFashionMNIST(root='../Data/Data_Store', train=True, download=True, one_hot=True,
+    #                              subsample_num=20000)
+
+    ub_Fashion = get_unbalanced_FashionMNIST_dataset('../Data/Data_Store',
+                                                     unbalanced_classes=[0,1,2,3,4,6,8],
+                                                     unbalanced=True,
+                                                     selected_classes=[0,1,2,3,4,5,6,7,8,9],
+                                                     unbalanced_ratio=0.1,
+                                                     random=False,
+                                                     one_hot=False)
+    #print(ub_Fashion.target.shape)
     # print(sub_MNIST.target[:10])
     # print(sub_MNIST.data.shape)
     rkm_params = {'capacity': 32, 'fdim': 300}
@@ -225,8 +288,8 @@ if __name__ == '__main__':
     pi_net_x = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
     f_net_y = FeatureMap_Net(create_featuremap_genrkm_MNIST_label(num_classes=10))
     pi_net_y = PreImageMap_Net(create_preimage_genrkm_MNIST_label(num_classes=10))
-    gen_rkm = MV_Gen_RKM(f_net_x,f_net_y,pi_net_x,pi_net_y, 10, img_size, device, primal=True)
-    gen_rkm.train(ub_MNIST, 200, 350, 1e-4, '../SavedModels/', 'ubMNIST_demo', save=True)
+    gen_rkm = MV_Gen_RKM(f_net_x,f_net_y,pi_net_x,pi_net_y, 10, img_size, device, primal=True, inverse_resampling=True)
+    gen_rkm.train(ub_Fashion, 150, 328, 1e-4, '../SavedModels/MV-RKM-demo/', 'ubFashion', save=True)
 
 
 

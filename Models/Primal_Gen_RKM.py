@@ -28,7 +28,8 @@ class Primal_Gen_RKM():
                  PreImageMap_Net : nn.Module,
                  h_dim : int,
                  img_size : list, #img_size : [c,w,h]
-                 device):
+                 device,
+                 inverse_resampling = False):
         self.training_time = None
         self.s = None
         self.h = None
@@ -38,6 +39,7 @@ class Primal_Gen_RKM():
         self.PreImageMap_Net = PreImageMap_Net.to(device, dtype=torch.float32)
         self.h_dim = h_dim
         self.img_size = img_size
+        self.inverse_resampling = inverse_resampling
 
 
     def primal_KPCA(self, X):
@@ -83,13 +85,16 @@ class Primal_Gen_RKM():
         return loss, J_t, J_reconerr
 
     def final_compute(self,
-                      dataloader : DataLoader,
-                      oversampling = False):
+                      dataloader : DataLoader,):
         '''
         final compute SVD on full dataset (in primal form)
         '''
         with torch.no_grad():
-            x = dataloader.dataset.data.to(self.device)
+            if self.inverse_resampling:
+                oversampled_dataset = get_full_oversampled_dataset(dataloader, one_hot=False)
+                x = oversampled_dataset.data.to(self.device)
+            else:
+                x = dataloader.dataset.data.to(self.device)
             Phi_X, U, s = self.primal_KPCA(x)
             h = torch.div(torch.mm(Phi_X, U), torch.norm(torch.mm(Phi_X, U), dim=0))  #renormalize h
             return U, h, s
@@ -174,8 +179,8 @@ if __name__ == '__main__':
     #######################
     ##experiment on unbalanced 012MNIST data (oversampling)
     #######################
-    # b_MNIST012 = FastMNIST(root='../Data/Data_Store', train=True, download=True, selected_classes=[0,1,2])
-    # b_MNIST012_dl = DataLoader(b_MNIST012, batch_size=328, shuffle=False)
+    b_MNIST012 = FastMNIST(root='../Data/Data_Store', train=True, download=True, selected_classes=[0,1,2])
+    b_MNIST012_dl = DataLoader(b_MNIST012, batch_size=328, shuffle=False)
 
     # b_MNIST = FastMNIST(root='../Data/Data_Store', train=True, download=True)
     # b_MNIST_dl = DataLoader(b_MNIST, batch_size=328, shuffle=False)
@@ -186,8 +191,8 @@ if __name__ == '__main__':
     # b_FashionMNIST = FastFashionMNIST(root='../Data/Data_Store', train=True, download=True)
     # b_FashionMNIST_dl = DataLoader(b_FashionMNIST, batch_size=328, shuffle=False)
     #
-    ub_FashionMNIST = get_unbalanced_FashionMNIST_dataset('../Data/Data_Store', unbalanced_classes=[0,1,2,3,4,6,8], unbalanced=True)
-    ub_FashionMNIST_dl = DataLoader(ub_FashionMNIST, batch_size=328, shuffle=False)
+    # ub_FashionMNIST = get_unbalanced_FashionMNIST_dataset('../Data/Data_Store', unbalanced_classes=[2],selected_classes=[0,1,2], unbalanced=True)
+    # ub_FashionMNIST_dl = DataLoader(ub_FashionMNIST, batch_size=328, shuffle=False)
 
     # ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([2]), unbalanced=True,
     #                                               selected_classes=np.asarray([0,1,2]),unbalanced_ratio=0.1)
@@ -198,29 +203,10 @@ if __name__ == '__main__':
     img_size = [1,28,28]
     f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size,**rkm_params))
     pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params))
-    gen_rkm = Primal_Gen_RKM(f_net, pi_net, 10, img_size, device)
-    gen_rkm.train(ub_FashionMNIST_dl, 150, 1e-4, '../SavedModels/RKM-demo/', dataset_name='ubFashion',save=True)
+    gen_rkm = Primal_Gen_RKM(f_net, pi_net, 2, img_size, device)
+    gen_rkm.train(b_MNIST012_dl, 150, 1e-4, '../SavedModels/RKM-demo/', dataset_name='bMNIST012',save=True)
     # print(gen_rkm.h.shape, gen_rkm.U.shape, gen_rkm.s.shape)
     # x_gen = gen_rkm.random_generation(300, 3)
     # print(x_gen.shape)
-
-
-
-    #######################
-    ##experiment on Ring2D data
-    #######################
-
-    #training phase
-
-    #balanced case:
-
-    # ring2D,_ = get_unbalanced_ring2d_dataloader(300,10000, minority_modes_num=0,modes_num=8,unbalanced=False)
-    # print(ring2D.dataset.data.shape)
-    # input_size = 2
-    # f_net = FeatureMap_Net(create_featuremap_genrkm_synthetic2D(100,input_size))
-    # pi_net = PreImageMap_Net(create_preimagemap_genrkm_synthetic2D(100,input_size))
-    # rkm = Primal_Gen_RKM(f_net,pi_net,2,[2],device)
-    # #print(rkm.FeatureMap_Net)
-    # rkm.train(ring2D, 150, 1e-4, '../SavedModels/', dataset_name='baRing2D')
 
 

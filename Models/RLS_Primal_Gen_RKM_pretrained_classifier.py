@@ -168,7 +168,16 @@ class RLS_Primal_Gen_RKM_class:
             N = dataset.data.size(0)
             resampled_idx = torch.multinomial(rls, N, replacement=True)
             resampled_x = dataset.data.to(self.device)[resampled_idx, :, :, :]
+            resampled_y = dataset.target.to(self.device)[resampled_idx]
             Phi_X, U, s = self.primal_KPCA(resampled_x)
+            h = torch.div(torch.mm(Phi_X, U), torch.norm(torch.mm(Phi_X, U), dim=0))  #renormalize h
+        return U, h, s, resampled_y
+
+    def final_compute_no_resample(self, dataset: Dataset):
+        with torch.no_grad():
+            x = dataset.data.to(self.device)
+            y = dataset.target.to(self.device)
+            Phi_X, U, s = self.primal_KPCA(x)
             h = torch.div(torch.mm(Phi_X, U), torch.norm(torch.mm(Phi_X, U), dim=0))  #renormalize h
         return U, h, s
 
@@ -234,7 +243,7 @@ class RLS_Primal_Gen_RKM_class:
                 f"epoch:{epoch + 1}/{epoch_num}, rkm_loss:{avg_loss}, J_t:{J_t.item()}, J_recon:{J_reconerr.item()}, time passing:{passing_minutes}m{passing_seconds}s.")
 
         #final compute U, h, S
-        U, h, s = self.final_compute(dataset, batch_size, rls)
+        U, h, s, y = self.final_compute(dataset, batch_size, rls)
         training_end_time = time.time()
         training_time = round(training_end_time - training_start_time, 1)
         print(f'training time: {training_time}s')
@@ -249,7 +258,8 @@ class RLS_Primal_Gen_RKM_class:
                 'PreImageMapNet_sd': self.PreImageMap_Net.state_dict(),
                 'U': U.detach(),
                 'h': h.detach(),
-                's': s.detach()
+                's': s.detach(),
+                'y': y.detach()
             },
                 model_save_path + model_name)
         else:
@@ -259,6 +269,172 @@ class RLS_Primal_Gen_RKM_class:
             self.PreImageMap_Net = self.PreImageMap_Net.cpu()
             self.FeatureMap_Net = self.FeatureMap_Net.cpu()
             self.training_time = training_time
+
+    def train_only_final_resample(self, dataset: Dataset, epoch_num: int, batch_size: int,
+              learning_rate, model_save_path,
+              dataset_name, save=True):
+
+        training_start_time = time.time()
+        params = list(self.FeatureMap_Net.parameters()) + list(self.PreImageMap_Net.parameters())
+        optimizer = torch.optim.Adam(params, lr=learning_rate, weight_decay=0)
+
+        N = dataset.data.size(0)  #total samples number
+
+        #compute RLS for full data
+        dataloader_rls = DataLoader(dataset, batch_size = 64, shuffle=False)
+        Phi_X_rls = []
+        for img, label in tqdm(dataloader_rls):
+            Phi_X_rls_batch = self.get_next_to_last_layer(img.to(self.device))
+            if Phi_X_rls_batch.dim() == 1:
+                Phi_X_rls_batch = Phi_X_rls_batch.unsqueeze(0)
+            #print(Phi_X_rls_batch.shape)
+            Phi_X_rls.append(Phi_X_rls_batch)
+        Phi_X_rls = torch.cat(Phi_X_rls, dim=0)
+        #print(Phi_X_rls.shape)
+
+        rls = self.compute_RLS(Phi_X_rls, use_umap= self.use_umap, umap_d=25)
+
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+        for epoch in range(epoch_num):
+            avg_loss = 0
+            start_time = time.time()
+            for i, minibatch in enumerate(dataloader):
+                imgs, labels = minibatch
+                imgs = imgs.to(self.device)
+                if torch.isnan(imgs).any():
+                    raise ValueError('imgs contains NaN values')
+                loss, J_t, J_reconerr = self.RKM_loss(imgs, 100)
+                optimizer.zero_grad()
+                loss.backward()
+                # Gradient clipping
+                torch.nn.utils.clip_grad_norm_(params, max_norm=2.0)
+
+                optimizer.step()
+                avg_loss += loss.detach().cpu().numpy()
+            end_time = time.time()
+            passing_minutes = int((end_time - start_time) // 60)
+            passing_seconds = int((end_time - start_time) % 60)
+            print(
+                f"epoch:{epoch + 1}/{epoch_num}, rkm_loss:{avg_loss}, J_t:{J_t.item()}, J_recon:{J_reconerr.item()}, time passing:{passing_minutes}m{passing_seconds}s.")
+
+        #final compute U, h, S
+        U, h, s, y = self.final_compute(dataset, batch_size, rls)
+        training_end_time = time.time()
+        training_time = round(training_end_time - training_start_time, 1)
+        print(f'training time: {training_time}s')
+        #save model
+        cur_time = int(time.time())
+        model_name = f'RLSclass_PrimalRKM_{dataset_name}_{cur_time}_s{self.h_dim}_b{batch_size}.pth'
+        if save:
+            torch.save({
+                'FeatureMapNet': self.FeatureMap_Net,
+                'PreImageMapNet': self.PreImageMap_Net,
+                'FeatureMapNet_sd': self.FeatureMap_Net.state_dict(),
+                'PreImageMapNet_sd': self.PreImageMap_Net.state_dict(),
+                'U': U.detach(),
+                'h': h.detach(),
+                's': s.detach(),
+                'y': y.detach()
+            },
+                model_save_path + model_name)
+        else:
+            self.U = U.detach().cpu()
+            self.h = h.detach().cpu()
+            self.s = s.detach().cpu()
+            self.PreImageMap_Net = self.PreImageMap_Net.cpu()
+            self.FeatureMap_Net = self.FeatureMap_Net.cpu()
+            self.training_time = training_time
+
+    def train_only_minibatch_resampling(self, dataset: Dataset, epoch_num: int, batch_size: int,
+              learning_rate, model_save_path,
+              dataset_name, save=True):
+        '''
+        Main training function
+        perform RLS sampling in each iteration,
+        '''
+        #Initialize optimizer
+        training_start_time = time.time()
+        params = list(self.FeatureMap_Net.parameters()) + list(self.PreImageMap_Net.parameters())
+        optimizer = torch.optim.Adam(params, lr=learning_rate, weight_decay=0)
+        N = dataset.data.size(0)  #total samples number
+
+        #compute RLS for full data
+        dataloader_rls = DataLoader(dataset, batch_size = 64, shuffle=False)
+        Phi_X_rls = []
+        for img, label in tqdm(dataloader_rls):
+            Phi_X_rls_batch = self.get_next_to_last_layer(img.to(self.device))
+            if Phi_X_rls_batch.dim() == 1:
+                Phi_X_rls_batch = Phi_X_rls_batch.unsqueeze(0)
+            #print(Phi_X_rls_batch.shape)
+            Phi_X_rls.append(Phi_X_rls_batch)
+        Phi_X_rls = torch.cat(Phi_X_rls, dim=0)
+        #print(Phi_X_rls.shape)
+
+        rls = self.compute_RLS(Phi_X_rls, use_umap= self.use_umap, umap_d=25)
+
+        #training loop
+        for epoch in range(epoch_num):
+            avg_loss = 0
+            start_time = time.time()
+            sampled_epoch_idx = []
+            for batch_num in range((N // batch_size) + 1):
+                if batch_num + 1 == (N // batch_size):
+                    sampled_batch_idx = torch.multinomial(rls, (N % batch_size), replacement=True)
+                else:
+                    sampled_batch_idx = torch.multinomial(rls, batch_size, replacement=True)
+                sampled_epoch_idx.append(sampled_batch_idx)
+                imgs = dataset.data.to(self.device)[sampled_batch_idx, :, :, :]
+                optimizer.zero_grad()
+                loss, J_t, J_reconerr = self.RKM_loss(imgs, 100)
+                loss.backward()
+
+                torch.nn.utils.clip_grad_norm_(params, max_norm=2.0)
+
+                optimizer.step()
+                avg_loss += loss.detach().cpu().numpy()
+            end_time = time.time()
+            passing_minutes = int((end_time - start_time) // 60)
+            passing_seconds = int((end_time - start_time) % 60)
+
+            # value counts on sampled labels in each epoch
+            sampled_labels = dataset.target.to(self.device)[torch.cat(sampled_epoch_idx, dim=0)]
+            unique_elements, counts = torch.unique(sampled_labels, return_counts=True)
+            element_count_dict = dict(zip(unique_elements.tolist(), counts.tolist()))
+            print(f'sampled labels counts: {element_count_dict}')
+
+            #log training process
+            print(
+                f"epoch:{epoch + 1}/{epoch_num}, rkm_loss:{avg_loss}, J_t:{J_t.item()}, J_recon:{J_reconerr.item()}, time passing:{passing_minutes}m{passing_seconds}s.")
+
+
+        U, h, s = self.final_compute_no_resample(dataset)
+        training_end_time = time.time()
+        training_time = round(training_end_time - training_start_time, 1)
+        print(f'training time: {training_time}s')
+        # save model
+        cur_time = int(time.time())
+        model_name = f'RLSclass_PrimalRKM_{dataset_name}_{cur_time}_s{self.h_dim}_b{batch_size}.pth'
+        if save:
+            torch.save({
+                'FeatureMapNet': self.FeatureMap_Net,
+                'PreImageMapNet': self.PreImageMap_Net,
+                'FeatureMapNet_sd': self.FeatureMap_Net.state_dict(),
+                'PreImageMapNet_sd': self.PreImageMap_Net.state_dict(),
+                'U': U.detach(),
+                'h': h.detach(),
+                's': s.detach(),
+            },
+                model_save_path + model_name)
+        else:
+            self.U = U.detach().cpu()
+            self.h = h.detach().cpu()
+            self.s = s.detach().cpu()
+            self.PreImageMap_Net = self.PreImageMap_Net.cpu()
+            self.FeatureMap_Net = self.FeatureMap_Net.cpu()
+            self.training_time = training_time
+
+
+
 
     def random_generation(self, n_samples: int,
                           l: int):
@@ -296,14 +472,14 @@ if __name__ == '__main__':
     # ub_MNIST012 = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=np.asarray([2]), unbalanced=True,
     #                                               selected_classes=np.asarray([0,1,2]),unbalanced_ratio=0.1)
 
-    #ub_MNIST = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=[0, 1, 2, 3, 4], unbalanced=True)
+    ub_MNIST = get_unbalanced_MNIST_dataset('../Data/Data_Store', unbalanced_classes=[0, 1, 2, 3, 4], unbalanced=True)
 
 
-    ub_fashion = get_unbalanced_FashionMNIST_dataset('../Data/Data_Store', unbalanced_classes=[0,1,2,3,4,6,8], unbalanced=True,
-                                                     unbalanced_ratio=0.1)
+    # ub_fashion = get_unbalanced_FashionMNIST_dataset('../Data/Data_Store', unbalanced_classes=[0,1,2,3,4,6,8], unbalanced=True,
+    #                                                  unbalanced_ratio=0.1)
     img_size = [1,28,28]
     rkm_params_fashion = {'capacity': 32, 'fdim': 300}
     f_net = FeatureMap_Net(create_featuremap_genrkm_MNIST(img_size, **rkm_params_fashion))
     pi_net = PreImageMap_Net(create_preimage_genrkm_MNIST(img_size, **rkm_params_fashion))
     gen_rkm = RLS_Primal_Gen_RKM_class(f_net, pi_net, 10, img_size, device, classifier='alexnet', use_umap=True)
-    gen_rkm.train(ub_fashion, 150, 328, 1e-4, '../SavedModels/RLS-RKM-demo/', dataset_name='ubfashion', save=True)
+    gen_rkm.train(ub_MNIST, 150, 328, 1e-4, '../SavedModels/RLS-RKM-demo/', dataset_name='ubfashion-withlabels', save=True)

@@ -26,8 +26,8 @@ print(device)
 num_repeat_expr = 3  #number of repeat experiments
 expr_records = []  #record of expr results
 rkm_params = {'capacity': 32, 'fdim': 300}
-unbalanced_classes_list = [np.asarray([0]),np.asarray([1])]  #minority classes is digit 2
-selected_classes = np.asarray([0, 1, 2])  #selected classes (digits 0 1 2)
+unbalanced_classes_list = [np.asarray([3]),np.asarray([4]),np.asarray([5])]  #minority classes is digit 2
+selected_classes = np.asarray([3,4,5])  #selected classes (digits 0 1 2)
 unbalanced_ratio = 0.1  #unbalance ratio
 
 #training setting
@@ -44,7 +44,7 @@ resnet18 = resnet18.to(torch.device('cpu'))
 
 
 start_time = time.time()
-file_name = f'expr_MNIST012_different_minorities_{int(start_time)}'
+file_name = f'expr_MNIST345_different_minorities_{int(start_time)}'
 os.mkdir(os.path.join('./expr_results', file_name))
 bMNIST012 = FastMNIST(root='./Data/Data_Store', train=True, download=True, selected_classes=[0, 1, 2])
 real_data = bMNIST012.data

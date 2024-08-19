@@ -12,7 +12,7 @@ plot_data = data[['unbalance_ratio', 'model_name', 'mode_1_mean', 'mode_2_mean',
                   'mode_4_mean', 'mode_5_mean', 'mode_6_mean', 'mode_7_mean', 'mode_8_mean', 'mode_9_mean', 'mode_10_mean']]
 
 # Define the grid dimensions (3 rows, 4 columns)
-fig, axes = plt.subplots(3, 4, figsize=(15, 10), sharex=True, sharey=False)
+fig, axes = plt.subplots(3, 4, figsize=(15, 7), sharex=True, sharey=False)
 #fig.suptitle('Mode Distributions by Model and Unbalance Ratio', fontsize=16)
 
 # Define a color palette
@@ -62,5 +62,5 @@ for ax in axes.flat:
 #         label.set_rotation(45)
 
 # Show plot
-plt.savefig('Outputs/fig/expr-rls-mnist-gen-dist.png', dpi=600)
+plt.savefig('Outputs/fig/expr-rls-mnist-gen-dist.png', dpi=400)
 plt.show()

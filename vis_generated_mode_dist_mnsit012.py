@@ -10,7 +10,7 @@ data = pd.read_csv(file_path)
 plot_data = data[['unbalance_ratio', 'model_name', 'mode_1_mean', 'mode_2_mean', 'mode_3_mean']]
 
 # Define the grid dimensions (3 rows, 4 columns)
-fig, axes = plt.subplots(3, 4, figsize=(15, 10), sharex=True, sharey=False)
+fig, axes = plt.subplots(3, 4, figsize=(15, 6), sharex=True, sharey=False)
 #fig.suptitle('Mode Distributions by Model and Unbalance Ratio', fontsize=16)
 
 # Define a color palette
@@ -63,5 +63,5 @@ for ax in axes.flat:
 #         label.set_rotation(45)
 
 # Show plot
-plt.savefig('Outputs/fig/expr-mnist012-gen-dist.png', dpi=600)
+plt.savefig('Outputs/fig/expr-mnist012-gen-dist.png', dpi=400)
 plt.show()

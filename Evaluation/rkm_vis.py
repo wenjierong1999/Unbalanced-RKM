@@ -8,14 +8,15 @@ from torch.utils.data import DataLoader, Dataset
 from Data.Data_Factory_v2 import *
 from utils.ConditionalGMM.condGMM import CondGMM
 import umap
+from tqdm import tqdm
 
 
-def rkm_random_generation_vis(rkm_model, grid_row_size=5, l=1, title = None):
+def rkm_random_generation_vis(rkm_model, grid_row_size=5, l=1, title = None, file_name = None):
     '''
     Visualize random generation of RKM (done on CPU)
     '''
     # Load RKM model
-    h = rkm_model['h'][:1000].detach().cpu().numpy()
+    h = rkm_model['h'].detach().cpu().numpy()
     U = rkm_model['U'].detach().cpu()
     pi_Net = rkm_model['PreImageMapNet']
 
@@ -47,25 +48,25 @@ def rkm_random_generation_vis(rkm_model, grid_row_size=5, l=1, title = None):
                 it += 1
     if title is not None:
         plt.suptitle(title)
+    if file_name is not None:
+        plt.savefig('../Outputs/fig/' + file_name + '.png', dpi=300)
     plt.show()
 
-def rkm_conditional_generation(rkm_model, y, grid_row_size=5, l=1):
+def rkm_conditional_generation(rkm_model, y, grid_row_size=5, l=1,
+                               file_name = None):
     '''
     random generation conditioned on the given label,
     visualized as structured output in RKM
+    input rkm_model should be multi-view RKM
     '''
 
     h = rkm_model['h'].detach().cpu().numpy()
-    #U = rkm_model['U'].detach().cpu()
     U = rkm_model['U_1'].detach().cpu()
-    #pi_Net = rkm_model['PreImageMapNet']
     pi_Net = rkm_model['PreImageMapNet_x']
     num_classes = len(torch.unique(y))
     y = F.one_hot(torch.tensor(y, dtype=torch.long), num_classes=num_classes).numpy()
-    #print(y.shape)
     labels = list(range(num_classes))
     h_cat = np.concatenate((h,y),axis=1)
-    print(h_cat.shape)
 
     with torch.no_grad():
         gmm = GaussianMixture(n_components=l, covariance_type='full').fit(h_cat)
@@ -73,7 +74,7 @@ def rkm_conditional_generation(rkm_model, y, grid_row_size=5, l=1):
         cgmm = CondGMM(gmm.weights_, gmm.means_, gmm.covariances_, fixed_indices=list(range(h.shape[1],h.shape[1]+y.shape[1])))
         # Plotting
         fig, ax = plt.subplots(grid_row_size, num_classes, figsize=(10, 10))
-        fig.subplots_adjust(wspace=0, hspace=0)
+        fig.subplots_adjust(wspace=0.01, hspace=0.01, left=0.01, right=0.99, top=0.99, bottom=0.05)
 
         for col_idx, label in enumerate(labels):
             row_it = 0
@@ -98,7 +99,8 @@ def rkm_conditional_generation(rkm_model, y, grid_row_size=5, l=1):
                 # Add labels at the bottom
         for idx, label in enumerate(labels):
             ax[-1, idx].set_xlabel(label, fontsize=20, fontweight='bold')
-    plt.suptitle('Conditional Generation')
+    if file_name is not None:
+        plt.savefig('../Outputs/fig/' + file_name + '.png', dpi=300)
     plt.show()
 
 def rkm_conditional_generation_sepGMM(rkm_model, y, grid_row_size=5):
@@ -315,76 +317,59 @@ def rkm_reconsturction_vis(rkm_model, dataloader: DataLoader, grid_row_size=6, p
             plot_images(axs, images, img_size, 'Reconstruction')
 
 
-def rkm_latentspace_vis(rkm_model, labels, use_umap = False):
+def rkm_latentspace_vis(rkm_model, labels, minority_labels : list, file_name = None):
     '''
     visualize latent space
     create scatter plot with histograms on the side x/y axis
     '''
     h = rkm_model['h']
-    if use_umap:
-        umap_reducer = umap.UMAP()
-        h = umap_reducer.fit_transform(h)
-        unique_labels = np.unique(labels)
-        fig = plt.figure(figsize=(10, 10))
-        for label in unique_labels:
-            mask = labels == label
-            #print(h[mask, 0].shape)
-            plt.scatter(h[mask, 0], h[mask, 1], s=1, label=str(label))
-        fig.suptitle('Latent Space')
-        plt.legend(title='Labels', loc='upper right', markerscale=8)
-        plt.show()
+    h = h[:, :2].detach().cpu().numpy()
+    labels = labels.cpu().numpy()
+    combined_data = np.hstack((h, labels.reshape(-1, 1)))
+    unique_data, counts = np.unique(combined_data, axis=0, return_counts=True)
+    colors = np.array(['red' if int(label) in minority_labels else 'blue' for _, _, label in unique_data])
+    print(colors.shape)
+    sizes = 3 + 12 * (counts - 1)
+    print(sizes.shape)
+    x = unique_data[:, 0]
+    y = unique_data[:, 1]
 
-    else:
-        h = h[:, :2].detach().cpu().numpy()
-        unique_labels = np.unique(labels)
-        # initialize figure
-        fig = plt.figure(figsize=(12, 12))
-        gs = fig.add_gridspec(2, 2, width_ratios=(1, 4),
-                              height_ratios=(4, 1),
-                              left=0.1, right=0.9, bottom=0.1, top=0.9,
-                              wspace=0.05, hspace=0.05
-                              )
-        ax = fig.add_subplot(gs[0, 1])  # main scatter plot
-
-        ax_histx = fig.add_subplot(gs[1, 1], sharex=ax)  # side histogram x
-        ax_histy = fig.add_subplot(gs[0, 0], sharey=ax)  # side histogram y
-
-        ax_histx.tick_params(axis="y", labelleft=False)
-        ax_histy.tick_params(axis="x", labelbottom=False)
-
-        scatter_plots = []
-        for label in unique_labels:
-            mask = labels == label
-            scatter = ax.scatter(h[mask, 0], h[mask, 1], s=1, label=str(label))
-            scatter_plots.append(scatter)
-
-        ax_histx.hist(h[:, 0], bins=15)
-        ax_histx.invert_yaxis()
-        ax_histy.hist(h[:, 1], bins=15, orientation='horizontal')
-        ax_histy.invert_xaxis()
-        # ax.legend(title="Labels", loc='outside upper right')
-        fig.suptitle('Unbalanced MNIST012')
-        fig.legend(handles=scatter_plots, title='Labels', loc='upper right', markerscale=8,
-                   bbox_to_anchor=(1.02, 1), frameon=False)
-        plt.show()
+    fig = plt.figure(figsize=(7, 7))
+    plt.scatter(x, y, s=sizes, c=colors, alpha=0.3)
+    print(unique_data.shape)
+    print(counts.shape)
+    # for i, (point, count) in tqdm(enumerate(zip(unique_data, counts)),total=len(unique_data), desc="Processing Points"):
+    #     x, y, label = point
+    #     label = int(label)
+    #
+    #     color = 'red' if label in minority_labels else 'blue'
+    #     size = 20 + 30 * (count - 1)  # Base size is 20, increasing with duplicates
+    #
+    #     plt.scatter(x, y, s=size, c=color, label=str(label) if count == 1 else "", alpha=0.6)
+    #fig.suptitle('Latent Space')
+    if file_name is not None:
+        plt.savefig('../Outputs/fig/' + file_name + '.png', dpi=500)
+    plt.show()
 
 
-def vae_random_generation_vis(vae_model, grid_row_size=10):
+
+
+
+def vae_random_generation_vis(vae_model, grid_row_size=10, file_name = None):
 
     decoder = vae_model['Decoder']
     with torch.no_grad():
-        z = torch.randn(grid_row_size ** 2, 300)
+        z = torch.randn(grid_row_size ** 2, 10)
         x_gen = decoder(z)
         it = 0
 
         # Plotting
-        fig, ax = plt.subplots(grid_row_size, grid_row_size, figsize=(10, 10))
-        fig.subplots_adjust(wspace=0, hspace=0)
+        fig, ax = plt.subplots(grid_row_size, grid_row_size, figsize=(6, 6))
+        fig.subplots_adjust(wspace=0.01, hspace=0.01, left=0.01, right=0.99, top=0.99, bottom=0.01)
 
         for i in range(grid_row_size):
             for j in range(grid_row_size):
                 img = x_gen[it].unsqueeze(0).numpy()
-                print(img.shape)
                 # Reshape x_gen based on img_size
                 if img.shape[1] == 3:  # If image has 3 channels (e.g., CIFAR-10)
                     img = img[0].transpose(1, 2, 0)  # Change shape to (H, W, C)
@@ -397,8 +382,47 @@ def vae_random_generation_vis(vae_model, grid_row_size=10):
                 ax[i, j].set_xticks([])
                 ax[i, j].set_yticks([])
                 it += 1
-    plt.suptitle('VAE MNIST')
+    if file_name is not None:
+        plt.savefig('../Outputs/fig/' + file_name + '.png', dpi=300)
     plt.show()
+
+def vae_latent_space_vis(vae_model, labels, file_name = None):
+
+    h = vae_model['h']
+    h = h[:, :2].detach().cpu().numpy()
+    labels = labels.cpu().numpy()
+    unique_labels = np.unique(labels)
+
+    fig = plt.figure(figsize=(5, 5))
+    for label in unique_labels:
+        mask = labels == label
+        plt.scatter(h[mask,0],h[mask,1],s=1,label=str(label))
+    plt.legend()
+    plt.suptitle('VAE')
+    if file_name is not None:
+        plt.savefig('../Outputs/fig/' + file_name + '.png', dpi=500)
+    plt.show()
+
+
+def rkm_latent_space_vis_v2(rkm_model, labels, file_name = None):
+
+    h = rkm_model['h']
+    h = h[:, :2].detach().cpu().numpy()
+    labels = labels.cpu().numpy()
+    unique_labels = np.unique(labels)
+
+    fig = plt.figure(figsize=(5, 5))
+    for label in unique_labels:
+        mask = labels == label
+        plt.scatter(h[mask,0],h[mask,1],s=1,label=str(label))
+    plt.legend()
+    plt.suptitle('Gen-RKM')
+    if file_name is not None:
+        plt.savefig('../Outputs/fig/' + file_name + '.png', dpi=500)
+    plt.show()
+
+
+
 
 
 def gan_random_generation_vis(gan_model, grid_row_size=10):
@@ -439,36 +463,92 @@ def gan_random_generation_vis(gan_model, grid_row_size=10):
 if __name__ == '__main__':
 
     #visualize generated samples
-    rls_rkm_model = torch.load('../SavedModels/RLS-RKM-demo/RLSclass_PrimalRKM_ubmnist_1722892406_s10_b328.pth', map_location=torch.device('cpu'))
-    rkm_model = torch.load('../SavedModels/RKM-demo/PrimalRKM_ubMNIST_1722890057_s10.pth', map_location=torch.device('cpu'))
-    fashion_classifier = torch.load('../SavedModels/classifiers/resnet18_mnist_f1716575624_acc994.pth', map_location=torch.device('cpu'))
+    # rls_rkm_model = torch.load('../SavedModels/RLS-RKM-demo/RLSclass_PrimalRKM_ubmnist_1722892406_s10_b328.pth', map_location=torch.device('cpu'))
+    # rkm_model = torch.load('../SavedModels/RKM-demo/PrimalRKM_ubMNIST_1722890057_s10.pth', map_location=torch.device('cpu'))
+    # fashion_classifier = torch.load('../SavedModels/classifiers/resnet18_mnist_f1716575624_acc994.pth', map_location=torch.device('cpu'))
+    #
+    #
+    # rkm_random_generation_vis_highlight_minorities(rls_rkm_model,
+    #                                                classifier=fashion_classifier,
+    #                                                minority_labels=[0,1,2,3,4],
+    #                                                grid_row_size=10, l=10,
+    #                                                save = True,
+    #                                                file_name='RLS-mnist-gensamples-highlighted-minorities')
+    #
+    # rkm_random_generation_vis_highlight_minorities(rkm_model,
+    #                                                classifier=fashion_classifier,
+    #                                                minority_labels=[0,1,2,3,4],
+    #                                                grid_row_size=10, l=10,
+    #                                                save = True,
+    #                                                file_name='rkm-mnist-gensamples-highlighted-minorities')
+
+    #conditional generation
+    # mv_rkm_model = torch.load('../SavedModels/MV-RKM-demo/IWsampling_MVRKM_ubFashion_1723060873_s10.pth', map_location=torch.device('cpu'))
+    # #print(mv_rkm_model['y'].cpu().shape)
+    # # ub_MNIST = get_unbalanced_MNIST_dataset('../Data/Data_Store',
+    # #                                            unbalanced_classes=[0,1,2,3,4],
+    # #                                            unbalanced=True,
+    # #                                            selected_classes=[0,1,2,3,4,5,6,7,8,9],
+    # #                                            unbalanced_ratio=0.1,
+    # #                                            random=False,
+    # #                                            one_hot=False)
+    #
+    # ub_Fashion = get_unbalanced_FashionMNIST_dataset('../Data/Data_Store',
+    #                                                  unbalanced_classes=[0,1,2,3,4,6,8],
+    #                                                  unbalanced=True,
+    #                                                  selected_classes=[0,1,2,3,4,5,6,7,8,9],
+    #                                                  unbalanced_ratio=0.1,
+    #                                                  random=False,
+    #                                                  one_hot=False)
+    #
+    # rkm_conditional_generation(mv_rkm_model, y = mv_rkm_model['y'].cpu(), grid_row_size=10, l=10, file_name='IWRKM-congen-ubFashion')
+
+    #latent space visualization
+    # b_fashion = FastFashionMNIST(root='../Data/Data_Store', train=True, download=True)
+    # ub_fashion = get_unbalanced_FashionMNIST_dataset('../Data/Data_Store', unbalanced_classes=[0,1,2,3,4,6,8], unbalanced=True,
+    #                                                  unbalanced_ratio=0.1)
+    # b_rkm_model = torch.load('../SavedModels/RKM-demo/PrimalRKM_bFashion_1722890790_s10.pth', map_location=torch.device('cpu'))
+    # ub_rkm_model = torch.load('../SavedModels/RKM-demo/PrimalRKM_ubFashion_1722891109_s10.pth', map_location=torch.device('cpu'))
+    # rls_rkm_model = torch.load('../SavedModels/RLS-RKM-demo/RLSclass_PrimalRKM_ubfashion-withlabels_1723153151_s10_b328.pth', map_location=torch.device('cpu'))
+    # #
+    # #rkm_latentspace_vis(b_rkm_model, b_fashion.target, minority_labels=[0,1,2,3,4,6,8])
+    #
+    # rkm_latentspace_vis(ub_rkm_model, ub_fashion.target, minority_labels=[0,1,2,3,4,6,8], file_name='ubFashion-latentspace-vis')
+    #
+    # rkm_latentspace_vis(rls_rkm_model, rls_rkm_model['y'].cpu(), minority_labels=[0,1,2,3,4,6,8], file_name='RLS-ubFashion-latentspace-vis')
+
+    # unique_rows, counts = torch.unique(rls_rkm_model['h'].cpu(), dim=0, return_counts=True)
+    # num_duplicates = torch.sum(counts > 1).item()
+    # print(num_duplicates)
 
 
-    rkm_random_generation_vis_highlight_minorities(rls_rkm_model,
-                                                   classifier=fashion_classifier,
-                                                   minority_labels=[0,1,2,3,4],
-                                                   grid_row_size=10, l=10,
-                                                   save = True,
-                                                   file_name='RLS-mnist-gensamples-highlighted-minorities')
-
-    rkm_random_generation_vis_highlight_minorities(rkm_model,
-                                                   classifier=fashion_classifier,
-                                                   minority_labels=[0,1,2,3,4],
-                                                   grid_row_size=10, l=10,
-                                                   save = True,
-                                                   file_name='rkm-mnist-gensamples-highlighted-minorities')
 
 
 
 
-    #rkm_conditional_generation(rkm_model, y = ub_MNIST012.target,grid_row_size=10,l=10)
 
-    #rkm_conditional_generation_sepGMM(rkm_model, y = ub_MNIST012.target, grid_row_size=10)
+    b_vae_model = torch.load('../SavedModels/VAE-demo/VAE_bMNIST012_1723816266.pth', map_location=torch.device('cpu'))
+    ub_vae_model = torch.load('../SavedModels/VAE-demo/VAE_ubMNIST012_1723825512.pth', map_location=torch.device('cpu'))
+    b_rkm_model = torch.load('../SavedModels/RKM-demo/PrimalRKM_bMNIST012_1722888534_s10.pth', map_location=torch.device('cpu'))
+    ub_rkm_model = torch.load('../SavedModels/RKM-demo/PrimalRKM_ubMNIST012_1722888284_s10.pth', map_location=torch.device('cpu'))
 
 
-    #mvrkm_random_generation_vis(mvrkm_model=rkm_model, grid_row_size=5, l=10)
 
-    #crkm_random_generation_vis(crkm_model=rkm_model, y=1, grid_row_size=5, l=10, num_classes=10)
+    bMNIST012 = FastMNIST(root='../Data/Data_Store', train=True, download=True, selected_classes=[0,1,2])
+    ub_MNIST012 = get_unbalanced_MNIST_dataset(data_root='../Data/Data_Store', unbalanced_classes=[2], selected_classes=[0,1,2], unbalanced_ratio=0.1,
+                                               unbalanced=True)
+    #vae_random_generation_vis(b_vae_model, grid_row_size=10)
 
-    # vae_model = torch.load('../SavedModels/VAE-demo/RLSVAE_ubMNIST012_1722698440.pth', map_location=torch.device('cpu'))
-    # vae_random_generation_vis(vae_model, grid_row_size=10)
+    # vae_latent_space_vis(b_vae_model,bMNIST012.target, file_name='vae-bMNIST012-latentspace-vis')
+    #
+    # vae_latent_space_vis(ub_vae_model,ub_MNIST012.target, file_name='vae-ubMNIST012-latentspace-vis')
+    #
+    # rkm_latent_space_vis_v2(b_rkm_model,bMNIST012.target, file_name='rkm-bMNIST012-latentspace-vis')
+    #
+    # rkm_latent_space_vis_v2(ub_rkm_model,ub_MNIST012.target, file_name='rkm-ubMNIST012-latentspace-vis')
+
+    vae_random_generation_vis(b_vae_model, grid_row_size=8, file_name='vae-bMNIST012-gensamples')
+    vae_random_generation_vis(ub_vae_model, grid_row_size=8, file_name='vae-ubMNIST012-gensamples')
+
+    rkm_random_generation_vis(b_rkm_model, grid_row_size=8, l=3, file_name='genrkm-bMNIST012-gensamples')
+    rkm_random_generation_vis(ub_rkm_model, grid_row_size=8, l=3, file_name='genrkm-ubMNIST012-gensamples')
